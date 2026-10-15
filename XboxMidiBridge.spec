@@ -11,6 +11,7 @@ a = Analysis(
     hiddenimports=["mido.backends.rtmidi", "rtmidi", "ui.main_window", "pygame._sdl2.controller", "certifi"],
     excludes=["tkinter", "PySide6.QtWebEngineCore", "PySide6.QtQml", "PySide6.QtQuick",
               "PySide6.QtMultimedia", "PySide6.Qt3DCore", "numpy"],
+    datas=[("assets/icon.png", "assets")],
     noarchive=False,
 )
 pyz = PYZ(a.pure)

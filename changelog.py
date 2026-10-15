@@ -9,6 +9,23 @@ import i18n
 from updater import parse_version
 
 CHANGES: dict[str, tuple[list[str], list[str]]] = {
+    "1.6.0": (
+        [
+            "**The version is always visible**, bottom right (ⓘ Xbox MIDI Bridge 1.6.0). Click it for the "
+            "**About window**: version, Check for updates, What's new, and info for support.",
+            "**Send feedback from the app:** write a wish, a problem or a question; the app opens GitHub "
+            "with the text already filled in (you need a free GitHub account, and the text is public). "
+            "Wishes can be voted for with a 👍, and everyone can see them with “See wishes & problems”.",
+        ],
+        [
+            "**Версията се вижда винаги**, долу вдясно (ⓘ Xbox MIDI Bridge 1.6.0). Цъкни върху нея за "
+            "**прозореца „За приложението“**: версия, Провери за обновления, Какво е новото и информация "
+            "за поддръжка.",
+            "**Изпращане на отзив от приложението:** напиши желание, проблем или въпрос; приложението "
+            "отваря GitHub с вече попълнен текст (нужен е безплатен акаунт в GitHub, а текстът е публичен). "
+            "Желанията се гласуват с 👍 и всеки ги вижда с „Виж желания и проблеми“.",
+        ],
+    ),
     "1.5.0": (
         [
             "**Language button** in the toolbar (🌐 BG / 🌐 EN): one click switches the whole interface "

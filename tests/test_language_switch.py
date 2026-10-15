@@ -52,6 +52,7 @@ def run():
     eng.feed(("connected", "Xbox", {}, {"family": "xbox"}), t[0]); step(state(), 80)
     w.tabs.setCurrentIndex(2)                        # Settings tab
     w._select_layer("leftshoulder")                  # looking at the LB layer, pinned
+    w.show_about(); out["about_open"] = w._about.isVisible(); out["about_before"] = w.st_about.toolTip()
     out["before"] = texts()
     out["before"].update(sent=midi.sent_count, thread=eng._thread.is_alive(), tab=w.tabs.currentIndex())
     step(state("a")); step(state())                  # a Note On/Off before the switch
@@ -64,6 +65,8 @@ def after_bg():
     out["bg"].update(thread=eng._thread.is_alive(), tab=w.tabs.currentIndex(), layer=w.view.layer,
                      pinned=w.pin_cb.isChecked(), same_engine=(w.engine is eng), same_midi=(w.midi is midi),
                      same_store=(id(w.store) == store_id))
+    out["about_after_rebuild"] = w._about is None    # the old-language window was closed
+    out["about_after"] = w.st_about.toolTip(); out["version_btn"] = w.st_about.text()
     step(state("a")); step(state())                  # still sends right after the switch
     out["bg"]["sent_after"] = midi.sent_count
     out["bg"]["monitor_rows"] = w.monitor.text.document().blockCount()
@@ -124,6 +127,14 @@ class LanguageSwitchTest(unittest.TestCase):
         self.assertEqual(o["bg"]["tab"], o["before"]["tab"], "same tab")
         self.assertEqual(o["bg"]["layer"], "leftshoulder", "same layer on screen")
         self.assertTrue(o["bg"]["pinned"], "a layer picked from the list stays pinned")
+
+    def test_version_button_follows_the_language_and_old_about_window_closes(self):
+        from version import APP_VERSION
+        o = self.out
+        self.assertTrue(o["about_open"])
+        self.assertTrue(o["about_after_rebuild"])
+        self.assertIn(APP_VERSION, o["version_btn"])
+        self.assertNotEqual(o["about_before"], o["about_after"], "the tooltip changed language")
 
     def test_choice_is_saved_and_history_kept(self):
         self.assertEqual(self.out["settings"], "en")

@@ -1,0 +1,21 @@
+name: Question or other feedback
+description: Ask something, or tell what you think
+title: "[Feedback] "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        English or Bulgarian (Български) is fine. **This issue is public.**
+  - type: textarea
+    id: message
+    attributes:
+      label: Your message
+    validations:
+      required: true
+  - type: textarea
+    id: app_info
+    attributes:
+      label: App info
+      description: Filled in automatically when you send from the app.
+      render: text

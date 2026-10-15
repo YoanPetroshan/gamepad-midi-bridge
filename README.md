@@ -78,6 +78,18 @@ From version 1.3.0 the app keeps itself up to date:
 
 Versions before 1.3.0 can't update themselves: download 1.3.0 once by hand.
 
+## Feedback and ideas
+
+Click the version at the bottom right of the window (ⓘ) to open **About**: the version, **Check for
+updates**, **What's new**, and **Send feedback…**.
+
+- **Send feedback…** takes a wish, a problem or a question and opens GitHub with the text already
+  filled in. You read it and press *Submit new issue*. It needs a free GitHub account, **the text is
+  public**, and the app itself sends nothing. You can add technical info (app version, macOS, controller
+  type; no names, files or MIDI data) and you see exactly what it is before sending.
+- **See wishes & problems** lists the open wishes, most voted first. Give a 👍 to the ones you want.
+- Or go straight to [Issues](../../issues/new/choose) in the repository.
+
 ## Connecting the controller
 
 - **Bluetooth:** hold the pair button (top, next to the USB-C port) until the Xbox button
@@ -325,6 +337,7 @@ has no wheels for Python 3.14; python-rtmidi is compiled for macOS 12+.
   N messages/s per axis (default 120), sends only on change.
 - `midi_out.py`: mido + python-rtmidi, virtual CoreMIDI port.
 - `mapping.py`: models, default layout, layers, JSON profiles.
+- `feedback.py`, `ui/about_dialog.py`: the About window and the feedback form (`.github/ISSUE_TEMPLATE/` holds the GitHub forms).
 - `updater.py`, `ui/update_dialog.py`, `changelog.py`, `version.py`: update check, self-update and what's new.
 - `i18n.py`: English/Bulgarian strings (`tr("English", "Български")`).
 - `ui/`: PySide6 interface (diagram, editor popover, panels).

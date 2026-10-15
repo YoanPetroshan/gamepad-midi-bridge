@@ -17,6 +17,7 @@ import updater
 from mapping import (AXIS_IDS, BUTTON_IDS, DEFAULT_PROFILE_NAME, GYRO_IDS, INPUT_LABELS, PADDLE_IDS,
                      TOUCH_IDS, UNRELIABLE_INPUTS, unreliable_inputs,
                      ProfileStore, default_profile, layer_label, layer_mods)
+import feedback
 import i18n
 from i18n import tr
 from midi_out import MidiOut
@@ -24,6 +25,7 @@ from ui import theme
 from ui.controller_view import ControllerView
 from ui.panels import MonitorPanel, SettingsPanel, TestPanel
 from ui.popover import MappingPopover
+from ui.about_dialog import AboutDialog, FeedbackDialog
 from ui.update_dialog import UpdateController, show_whats_new
 from version import APP_VERSION
 
@@ -141,6 +143,10 @@ class MainWindow(QMainWindow):
                 self._popover.close()
             except RuntimeError:
                 pass
+        if getattr(self, "_about", None) is not None:
+            self._about.close()
+            self._about.deleteLater()
+            self._about = None
         old_toolbar = self._toolbar
         self.removeToolBar(old_toolbar)
         old_toolbar.deleteLater()
@@ -214,6 +220,33 @@ class MainWindow(QMainWindow):
         for w in (self.st_ctrl, self.st_midi, self.st_bg):
             sb.addWidget(w)
         sb.addPermanentWidget(self.st_fine)
+        # The version: click it for About (updates, what's new, feedback).
+        self.st_about = QPushButton(f"ⓘ  Xbox MIDI Bridge {APP_VERSION}")
+        self.st_about.setFlat(True)
+        self.st_about.setCursor(Qt.PointingHandCursor)
+        self.st_about.setToolTip(tr("About · check for updates · send feedback",
+                                    "За приложението · провери за обновления · изпрати отзив"))
+        self.st_about.setStyleSheet(f"QPushButton {{ border: none; background: transparent; color: {theme.MUTED};"
+                                    f" padding: 0 10px; }} QPushButton:hover {{ color: {theme.ACCENT}; }}")
+        self.st_about.clicked.connect(self.show_about)
+        sb.addPermanentWidget(self.st_about)
+
+    # ---------------------------------------------------------------- about / feedback
+    def feedback_info(self) -> str:
+        with self.engine.lock:
+            name = self.engine.controller_name if self.engine.connected else None
+        return feedback.system_info(name, self.store.settings.get("family"), i18n.LANG)
+
+    def show_about(self):
+        if getattr(self, "_about", None) is None:
+            self._about = AboutDialog(self, lambda: self.updates.check(manual=True),
+                                      lambda: show_whats_new(self, None), self.show_feedback, self.feedback_info)
+        self._about.show()  # not modal: the update windows it can open must stay usable
+        self._about.raise_()
+        self._about.activateWindow()
+
+    def show_feedback(self):
+        FeedbackDialog(self, self.feedback_info).exec()
 
     def _init_settings_panel(self):
         sp = self.settings_panel

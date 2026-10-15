@@ -1,0 +1,28 @@
+name: Wish / idea
+description: Suggest something new, or a change to how the app works
+title: "[Idea] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping to make the app better! English or Bulgarian (Български) is fine.
+        **This issue is public.** Other people can vote for it with a 👍.
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like?
+      description: Describe it the way you would explain it to a friend.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: How would you use it? (optional)
+      description: "A real situation helps a lot: what are you doing with the app when you miss this?"
+  - type: textarea
+    id: app_info
+    attributes:
+      label: App info
+      description: Filled in automatically when you send from the app.
+      render: text
