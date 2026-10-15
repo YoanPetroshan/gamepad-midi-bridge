@@ -313,7 +313,7 @@ class ControllerView(QWidget):
         if iid in TOUCH_IDS:
             return bool(self.snap.get("touch_down"))
         v = self.snap.get("axes", {}).get(iid, 0.0)
-        m = self.profile.axes.get(iid) if self.profile else None
+        m = self.profile.effective_axis(self.layer, iid) if self.profile else None
         dz = m.deadzone if m else 0.08
         if iid in GYRO_IDS:
             return bool(self.snap.get("gyro")) and abs(v) > max(dz, 0.02)
@@ -451,7 +451,7 @@ class ControllerView(QWidget):
             p.setBrush(QColor("#1d2025"))
             p.drawEllipse(c, STICK_R, STICK_R)
             # deadzone circle
-            m = self.profile.axes.get(xid)
+            m = self.profile.effective_axis(self.layer, xid)
             dz = (m.deadzone if m else 0.08) * STICK_TRAVEL
             p.setPen(QPen(QColor(theme.BORDER), 1, Qt.DotLine))
             p.setBrush(Qt.NoBrush)
@@ -595,7 +595,7 @@ class ControllerView(QWidget):
         is_axis = iid in prof.axes
         held_mod = not is_axis and iid in layer_mods(self.layer)
         if is_axis:
-            m = prof.axes[iid]
+            m = prof.effective_axis(self.layer, iid)  # what this axis does in the layer on screen
         else:
             m = self._bmap(iid) or ButtonMapping(enabled=False)
         inherited = not is_axis and prof.inherited_modifier(self.layer, iid)
@@ -643,7 +643,12 @@ class ControllerView(QWidget):
             p.drawEllipse(QPointF(r.right() - 16, r.y() + 14), 5, 5)
 
         if is_axis:
-            desc = describe_axis(m) + (tr(" · shared", " · общ") if self.layer else "")
+            desc = describe_axis(m)
+            if self.layer:  # where the settings come from
+                src = prof.axis_source(self.layer, iid)
+                desc += (tr(" · own", " · собствени") if src == self.layer
+                         else tr(" · base", " · основни") if src is None
+                         else " · " + layer_label(src))
             if iid in GYRO_IDS and m.enabled:
                 desc += tr(" · needs Gyro button", " · с бутон Жиро")
         elif held_mod:

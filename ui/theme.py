@@ -55,6 +55,8 @@ QFrame#popover {{ background: {PANEL}; border: 1px solid {ACCENT_DIM}; border-ra
 QFrame#popover QWidget {{ background: {PANEL}; }}
 QFrame#popover QComboBox, QFrame#popover QSpinBox, QFrame#popover QDoubleSpinBox, QFrame#popover QLineEdit {{ background: {PANEL_2}; }}
 QScrollArea {{ border: none; }}
+QComboBox:disabled, QDoubleSpinBox:disabled, QLineEdit:disabled {{ color: #5d646e; background: transparent; border-color: {BORDER}; }}
+QCheckBox:disabled, QLabel:disabled {{ color: #5d646e; }}
 QToolTip {{ background: {PANEL_2}; color: {TEXT}; border: 1px solid {BORDER}; }}
 """
 

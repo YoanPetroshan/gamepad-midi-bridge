@@ -7,6 +7,7 @@ thread or a controller.
 from __future__ import annotations
 
 import threading
+from collections.abc import MutableMapping
 import time
 
 import mido
@@ -30,6 +31,40 @@ HELD_MODES = ("rate", "relative")
 # is the spring, not the hand, so the position is kept.
 RELEASE_SPEED = 6.0
 PICKUP = 0.02  # how close the stick must come to the held value to take it over
+
+
+def slot_of(m: AxisMapping) -> tuple[int, int, bool]:
+    """The MIDI parameter an axis drives: (channel, CC, 14-bit). Held values belong to it, not to the
+    axis, so two axes (or two layers) that send the same CC share one value and never make it jump."""
+    return (m.channel, m.cc, m.hires)
+
+
+class _RateView(MutableMapping):
+    """`engine.rate_values[axis]`: the held value (0..1) of the parameter the axis sends in the layer
+    that is active now."""
+
+    def __init__(self, eng: "Engine"):
+        self._e = eng
+
+    def __getitem__(self, a: str) -> float:
+        m = self._e._eff.get(a)
+        if m is None:
+            raise KeyError(a)
+        return self._e.slot_values.get(slot_of(m), 0.5)
+
+    def __setitem__(self, a: str, v: float) -> None:
+        m = self._e._eff.get(a)
+        if m is not None:
+            self._e.slot_values[slot_of(m)] = max(0.0, min(1.0, float(v)))
+
+    def __delitem__(self, a: str) -> None:
+        raise TypeError("values cannot be deleted")
+
+    def __iter__(self):
+        return iter(AXIS_IDS)
+
+    def __len__(self) -> int:
+        return len(AXIS_IDS)
 
 
 def is_held(a: str, m: AxisMapping) -> bool:
@@ -77,7 +112,8 @@ def quantize(v: float, hires: bool) -> int:
 
 
 class Engine:
-    def __init__(self, profile: Profile, midi, reader=None, rate_values: dict | None = None):
+    def __init__(self, profile: Profile, midi, reader=None, rate_values: dict | None = None,
+                 slot_values: dict | None = None):
         self.lock = threading.RLock()
         self.profile = profile
         self.midi = midi
@@ -103,11 +139,19 @@ class Engine:
 
         # output
         self.toggles: dict[str, bool] = {}  # "layer|button" → on
-        self.rate_values = {a: 0.5 for a in AXIS_IDS}
-        if rate_values:
-            for k, v in rate_values.items():
-                if k in self.rate_values:
-                    self.rate_values[k] = max(0.0, min(1.0, float(v)))
+        # Held values per MIDI parameter (channel, CC, 14-bit); `rate_values[axis]` is the view of them.
+        self.slot_values: dict[tuple[int, int, bool], float] = {}
+        self.rate_values = _RateView(self)
+        self._eff_layer = ""  # the layer `_eff` was computed for
+        self._eff: dict[str, AxisMapping] = {}  # the settings of every axis in the active layer
+        self._pickup: set[str] = set()  # absolute axes waiting for the stick to reach the current value
+        self._pickup_last: dict[str, float] = {}
+        for k, v in (rate_values or {}).items():  # values saved per axis (before 1.7)
+            m = profile.axes.get(k)
+            if m is not None:
+                self.slot_values[slot_of(m)] = max(0.0, min(1.0, float(v)))
+        for k, v in (slot_values or {}).items():
+            self.slot_values[tuple(k)] = max(0.0, min(1.0, float(v)))
         self.outputs: dict[str, int] = {}  # last value sent per axis
         self._target: dict[str, int] = {}
         self._pending: set[str] = set()
@@ -256,6 +300,7 @@ class Engine:
         with self.lock:
             dt = 0.0 if self._last_step is None else max(0.0, min(MAX_DT, now - self._last_step))
             self._last_step = now
+            self._sync_layer()
             self._run_glides(now)
             if not self.connected or now < self._settle_until:
                 self._flush_pending(now)
@@ -264,11 +309,13 @@ class Engine:
                 # Read the current position first, then continue: no phantom presses.
                 self._baseline = False
                 self._prev = dict(self.buttons)
-                for a, m in self.profile.axes.items():
+                for a, m in self._eff.items():
                     if not is_held(a, m):
                         self._target[a] = self._compute_absolute(a, m)
                         self._pending.discard(a)
                 self._hold_state.clear()  # held sticks re-pick-up from their kept value
+                self._pickup.clear()
+                self._pickup_last.clear()
                 return
 
             if self.learn:
@@ -284,6 +331,7 @@ class Engine:
                     else:
                         self._on_release(b)
             self._prev = dict(self.buttons)
+            self._sync_layer()  # a modifier may just have been pressed or released
 
             self.fine_active = False
             self.gyro_active = self._gyro_toggle
@@ -296,7 +344,7 @@ class Engine:
             self._update_led()
 
             for a in AXIS_IDS:
-                m = self.profile.axes.get(a)
+                m = self._eff.get(a)
                 if not m or not m.enabled:
                     continue
                 fine = self.profile.options.fine_factor if self.fine_active else 1.0
@@ -319,6 +367,8 @@ class Engine:
                     target = quantize(self.rate_values[a], m.hires)
                 else:
                     target = self._compute_absolute(a, m)
+                    if a in self._pickup:
+                        target = self._pickup_target(a, m, target)
                 if target != self._target.get(a):
                     self._target[a] = target
                     self._pending.add(a)
@@ -329,18 +379,69 @@ class Engine:
     def _group(self, a: str) -> list[str]:
         """Held-value axes sending the same CC as `a` (e.g. left stick X, touch X and gyro
         turn all on CC 10): they share one value, so switching between them never jumps."""
-        m = self.profile.axes.get(a)
+        m = self._eff.get(a)
         if not m:
             return [a]
-        key = (m.channel, m.cc, m.hires)
-        return [b for b, n in self.profile.axes.items()
-                if n.enabled and (b == a or (is_held(b, n) and (n.channel, n.cc, n.hires) == key))]
+        key = slot_of(m)
+        return [b for b, n in self._eff.items() if n.enabled and (b == a or (is_held(b, n) and slot_of(n) == key))]
 
     def _set_held(self, a: str, v: float) -> None:
-        v = max(0.0, min(1.0, v))
-        for b in self._group(a):
-            self.rate_values[b] = v
-        self.rate_dirty = True
+        m = self._eff.get(a)
+        if m is not None:
+            self.slot_values[slot_of(m)] = max(0.0, min(1.0, v))
+            self.rate_dirty = True
+
+    # ------------------------------------------------------------ layers and axes
+    def _refresh_eff(self) -> None:
+        key = self.current_layer
+        self._eff_layer = key
+        self._eff = {a: m for a in AXIS_IDS if (m := self.profile.effective_axis(key, a)) is not None}
+
+    def _sync_layer(self) -> None:
+        if self.current_layer != self._eff_layer:
+            self._reeval_axes()
+
+    def _reeval_axes(self) -> None:
+        """The active layer (or an axis override) changed: axes whose settings are now different carry
+        on from the value their MIDI parameter already has, so nothing jumps."""
+        old = self._eff
+        self._refresh_eff()
+        for a in AXIS_IDS:
+            n = self._eff.get(a)
+            if n is not None and old.get(a) is not n:
+                self._axis_switched(a, n)
+
+    def _axis_switched(self, a: str, n: AxisMapping) -> None:
+        self._glides.pop(a, None)
+        self._hold_state.pop(a, None)
+        self._pickup.discard(a)
+        self._pickup_last.pop(a, None)
+        self._pending.discard(a)
+        known = self.slot_values.get(slot_of(n))
+        if is_held(a, n):  # speed / drag / gyro / held stick: carries on from the value of that CC
+            known = self.slot_values.setdefault(slot_of(n), 0.5)
+            self._target[a] = self.outputs[a] = quantize(known, n.hires)
+        elif known is not None:  # absolute: stays where it is until the stick reaches that value
+            self._pickup.add(a)
+            self._target[a] = self.outputs[a] = quantize(known, n.hires)
+        else:  # nothing known about this CC yet: take the stick as it is, without sending
+            self._target[a] = self.outputs[a] = self._compute_absolute(a, n)
+
+    def _pickup_target(self, a: str, m: AxisMapping, live: int) -> int:
+        """Absolute axis that has just come into use: it keeps the value its CC already had until the
+        stick reaches (or crosses) it, then follows the stick."""
+        kept = self.slot_values.get(slot_of(m))
+        if kept is None:
+            self._pickup.discard(a)
+            return live
+        v = live / (16383 if m.hires else 127)
+        last = self._pickup_last.get(a)
+        self._pickup_last[a] = v
+        if abs(v - kept) < PICKUP or (last is not None and (last - kept) * (v - kept) <= 0):
+            self._pickup.discard(a)
+            self._pickup_last.pop(a, None)
+            return live
+        return quantize(kept, m.hires)
 
     def _move_held(self, a: str, delta: float) -> None:
         for b in self._group(a):
@@ -402,7 +503,7 @@ class Engine:
 
     def _run_glides(self, now: float) -> None:
         for a, (start, t0, dur) in list(self._glides.items()):
-            m = self.profile.axes.get(a)
+            m = self._eff.get(a)
             if not m or not m.enabled or not is_held(a, m) or (
                     self.connected and abs(self.axes.get(a, 0.0)) > GLIDE_CANCEL):
                 del self._glides[a]  # the user took over
@@ -432,7 +533,7 @@ class Engine:
             return
         min_interval = 1.0 / max(1, self.profile.options.max_rate_hz)
         for a in list(self._pending):
-            m = self.profile.axes.get(a)
+            m = self._eff.get(a)
             if not m or not m.enabled:
                 self._pending.discard(a)
                 continue
@@ -450,6 +551,9 @@ class Engine:
         if self._sent_cc.get(key) == value:
             return  # another axis on the same CC already sent this value
         self._sent_cc[key] = value
+        if not is_held(a, m):  # a held axis keeps its own, more exact value; an absolute one sets it
+            self.slot_values[key] = value / (16383 if m.hires else 127)  # what this CC holds now
+            self.rate_dirty = True
         ch = m.channel - 1
         if m.hires:
             self.midi.send(mido.Message("control_change", channel=ch, control=m.cc, value=value >> 7))
@@ -584,26 +688,37 @@ class Engine:
             self._toggled_mods.clear()
             self._held.clear()
             self.profile = profile
+            self._refresh_eff()
             self.toggles.clear()
             self._pending.clear()
             self._glides.clear()
-            if rate_values is not None:
-                for a in AXIS_IDS:
-                    self.rate_values[a] = max(0.0, min(1.0, float(rate_values.get(a, 0.5))))
+            self._pickup.clear()
+            self._pickup_last.clear()
+            if rate_values is not None:  # values per axis (the old format)
+                for a, m in profile.axes.items():
+                    if a in rate_values:
+                        self.slot_values[slot_of(m)] = max(0.0, min(1.0, float(rate_values[a])))
             # New axes start from the current position without sending.
             self._hold_state.clear()
-            for a, m in profile.axes.items():
+            for a, m in self._eff.items():
                 if is_held(a, m):
                     self._target[a] = self.outputs[a] = quantize(self.rate_values[a], m.hires)
                 else:
                     self._target[a] = self._compute_absolute(a, m)
 
+    def refresh_axes(self) -> None:
+        """Layer settings of axes were added, removed or cleared: pick up the ones that apply now."""
+        with self.lock:
+            self._reeval_axes()
+
     def mapping_changed(self, input_id: str) -> None:
         """After editing an axis: send no jump, just sync the target."""
         with self.lock:
-            m = self.profile.axes.get(input_id)
-            if m is None:
-                return
+            before = self._eff.get(input_id)
+            self._reeval_axes()  # an own-settings override may have been added or removed
+            m = self._eff.get(input_id)
+            if m is None or m is not before:
+                return  # _reeval_axes() has already carried this axis over
             self._pending.discard(input_id)
             self._hold_state.pop(input_id, None)
             if is_held(input_id, m):
@@ -621,7 +736,7 @@ class Engine:
             dur = self.profile.options.center_time if duration is None else duration
             now = self._last_step if self._last_step is not None else time.perf_counter()
             for a in axes:
-                m = self.profile.axes.get(a)
+                m = self._eff.get(a)
                 if not m or not m.enabled or not is_held(a, m):
                     continue
                 if dur <= 0:
@@ -634,7 +749,7 @@ class Engine:
     def set_axis_value(self, a: str, v: float) -> None:
         """Test mode: set an axis directly (0..1) and send only its CC."""
         with self.lock:
-            m = self.profile.axes.get(a)
+            m = self._eff.get(a)
             if not m:
                 return
             v = max(0.0, min(1.0, v))
@@ -657,15 +772,15 @@ class Engine:
     def resend_rate_values(self) -> None:
         with self.lock:
             done = set()
-            for a, m in self.profile.axes.items():
-                key = (m.channel, m.cc, m.hires)
+            for a, m in self._eff.items():
+                key = slot_of(m)
                 if m.enabled and is_held(a, m) and key not in done:
                     done.add(key)
                     self._force_axis(a, m, quantize(self.rate_values[a], m.hires))
 
     def axis_value_01(self, a: str) -> float:
         """Current output value of the axis 0..1 (for display)."""
-        m = self.profile.axes.get(a)
+        m = self._eff.get(a)
         if not m:
             return 0.0
         out = self.outputs.get(a)

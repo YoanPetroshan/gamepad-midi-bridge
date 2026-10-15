@@ -171,7 +171,7 @@ button gives many commands:
   pressed) or **Toggle** (press once to switch the layer on, press again to switch it off).
 - A button with no value in a layer **does nothing** there (label “not set in this layer”).
 - Impossible D-pad combos (↑+↓, ←+→) don't create layers.
-- Sticks and LT/RT are shared by all layers.
+- Sticks and LT/RT work as in the base layer in every layer, unless you give them their own settings in a layer (see below).
 - Note Off is always correct: a button released after its modifier uses the layer it was
   pressed in.
 
@@ -187,6 +187,16 @@ button gives many commands:
 4. For D-pad modifiers inside the LB layer: in the LB layer open D-pad ↑ → Function → Modifier.
 5. **Learn** works with layers: hold the modifiers and press the button. A modifier pressed
    and released on its own opens the modifier itself.
+- **Different stick behaviour per layer.** Inside a layer, open a stick or trigger and tick **Own settings in this
+  layer**. It starts as a copy of the base settings; then change anything: for example slow **rate** mode on the
+  base layer and **absolute position** on another layer, or even another **CC** (Pan on the base layer, Zoom in
+  the LB layer). The label shows where the settings come from (“own”, “base”, or the name of a lower layer).
+  Layers inherit like modifiers do: LB + D-pad uses LB's settings unless it has its own. Nothing jumps when you
+  change layer: a different CC starts from the middle and keeps its own position, and an absolute stick that
+  enters a layer keeps the value its CC already had until the stick reaches it, then follows the stick.
+- **Copy / paste.** Every editor has **Copy settings** and **Paste settings**: everything of a button or axis
+  (note, CC, channel, mode, speed…) goes to the clipboard as text. Paste it on another input, in another layer
+  or profile, or send it to a friend. **Paste with a new number** gives the next free note / CC / program.
 - **Number fields** (channel, note, CC, velocity…) have no up/down arrows: click the number
   and type a new one, or open the list. In the list, every value that is already used shows
   **which button of which layer uses it**.

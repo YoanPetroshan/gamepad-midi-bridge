@@ -205,6 +205,54 @@ class AxisMapping:
         return m
 
 
+    def adapted_for(self, axis_id: str) -> "AxisMapping":
+        """These settings fitted to another axis: a touchpad drags or is absolute, the gyro is always a
+        speed, a stick or trigger is a speed or absolute. (Used when settings are copied between axes.)"""
+        m = copy.copy(self)
+        if axis_id in TOUCH_IDS:
+            m.mode = "relative" if m.mode in ("rate", "relative") else "absolute"
+        elif axis_id in GYRO_IDS:
+            m.mode = "rate"
+        else:
+            m.mode = "rate" if m.mode in ("rate", "relative") else "absolute"
+        if axis_id not in STICK_IDS:
+            m.hold = False  # only sticks can hold a position
+        return m.normalized()
+
+
+# --- Copy / paste of one button's or axis' settings, as text on the clipboard ---
+
+CLIPBOARD_TAG = "xbox-midi-bridge"
+
+
+def settings_to_text(m) -> str:
+    """All settings of a button or an axis (note, CC, channel, mode, speed, curve, …) as text."""
+    kind = "button" if isinstance(m, ButtonMapping) else "axis"
+    return json.dumps({CLIPBOARD_TAG: 1, "kind": kind, "settings": asdict(m)}, ensure_ascii=False, indent=1)
+
+
+def settings_from_text(text: str, kind: str):
+    """The ButtonMapping / AxisMapping in `text`, or None if the text is not copied settings of that kind."""
+    try:
+        data = json.loads(text)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(data, dict) or data.get(CLIPBOARD_TAG) != 1 or data.get("kind") != kind:
+        return None
+    if not isinstance(data.get("settings"), dict):
+        return None
+    try:
+        return _build(ButtonMapping if kind == "button" else AxisMapping, data["settings"]).normalized()
+    except (TypeError, ValueError):
+        return None
+
+
+def copy_settings_into(target, source) -> None:
+    """Overwrite every setting of `target` with `source`'s (in place, so references stay valid)."""
+    for f in fields(target):
+        setattr(target, f.name, getattr(source, f.name))
+
+
 @dataclass
 class ProfileOptions:
     fine_factor: float = 0.25  # stick speed multiplier while a "fine" button is held
@@ -223,6 +271,44 @@ class Profile:
     # Layers: key = held modifiers (layer_key), value = button mappings in that layer.
     # The base layer is `buttons` (key ""). A button with no entry in a layer does nothing there.
     layers: dict[str, dict[str, ButtonMapping]] = field(default_factory=dict)
+    # Axis settings of a layer: key = held modifiers, value = {axis: its own settings in that layer}.
+    # An axis without an entry uses the base settings (`axes`) in every layer.
+    axis_layers: dict[str, dict[str, AxisMapping]] = field(default_factory=dict)
+
+    def axis_source(self, key: str, a: str) -> str | None:
+        """The layer whose own settings drive axis `a` while layer `key` is active: the most specific
+        layer (a subset of the held modifiers) that has settings for it, or None for the base settings."""
+        mods = layer_mods(key)
+        for size in range(len(mods), 0, -1):
+            for sub in itertools.combinations(mods, size):
+                k = layer_key(sub)
+                if a in self.axis_layers.get(k, {}):
+                    return k
+        return None
+
+    def effective_axis(self, key: str, a: str) -> AxisMapping | None:
+        src = self.axis_source(key, a)
+        return self.axis_layers[src][a] if src is not None else self.axes.get(a)
+
+    def ensure_axis_override(self, key: str, a: str) -> AxisMapping:
+        """Give axis `a` its own settings in layer `key`, starting as a copy of what applies there now."""
+        if not key:
+            raise ValueError("the base layer has no overrides")
+        if a not in self.axis_layers.get(key, {}):
+            self.axis_layers.setdefault(key, {})[a] = copy.deepcopy(self.effective_axis(key, a))
+        return self.axis_layers[key][a]
+
+    def remove_axis_override(self, key: str, a: str) -> None:
+        d = self.axis_layers.get(key)
+        if d:
+            d.pop(a, None)
+            if not d:
+                self.axis_layers.pop(key, None)
+
+    def clear_layer(self, key: str) -> None:
+        """Forget everything that was set in layer `key`: its buttons and its axis settings."""
+        self.layers.pop(key, None)
+        self.axis_layers.pop(key, None)
 
     def button_map(self, key: str, b: str) -> ButtonMapping | None:
         if not key:
@@ -311,11 +397,14 @@ class Profile:
             if sig and (key, b) != exclude and sig[0] == kind and sig[1] == channel:
                 add(sig[2], f"{INPUT_LABELS[b]} · {layer_label(key)}")
         if kind == "cc":
-            for a, m in self.axes.items():
-                if m.enabled and m.channel == channel and ("", a) != exclude:
-                    add(m.cc, INPUT_LABELS[a])
+            axes = [("", a, m) for a, m in self.axes.items()]
+            axes += [(k, a, m) for k, d in self.axis_layers.items() for a, m in d.items()]
+            for k, a, m in axes:
+                if m.enabled and m.channel == channel and (k, a) != exclude:
+                    who = INPUT_LABELS[a] + (f" · {layer_label(k)}" if k else "")
+                    add(m.cc, who)
                     if m.hires:
-                        add(m.cc + 32, INPUT_LABELS[a] + " (LSB)")
+                        add(m.cc + 32, who + " (LSB)")
         return out
 
     def fill_layer(self, key: str, buttons: list[str]) -> list[tuple[str, int, int]]:
@@ -370,6 +459,8 @@ class Profile:
                        for key, maps in self.layers.items() if maps},
             "buttons": {k: asdict(v) for k, v in self.buttons.items()},
             "axes": {k: asdict(v) for k, v in self.axes.items()},
+            "axis_layers": {key: {a: asdict(m) for a, m in d.items()}
+                            for key, d in self.axis_layers.items() if d},
             "options": asdict(self.options),
         }
 
@@ -392,6 +483,13 @@ class Profile:
             for b, v in maps.items():
                 if b in p.buttons and b not in mods and isinstance(v, dict):
                     p.layers.setdefault(key, {})[b] = _build(ButtonMapping, v).normalized()
+        for key, d in (data.get("axis_layers") or {}).items():
+            mods = layer_mods(key)
+            if not mods or not isinstance(d, dict):
+                continue
+            for a, v in d.items():
+                if a in p.axes and isinstance(v, dict):
+                    p.axis_layers.setdefault(layer_key(mods), {})[a] = _build(AxisMapping, v).normalized()
         if int(data.get("version", 1)) < 2:
             # v2: L3/R3 glide Pan/Tilt back to center. Only touched if they still match
             # the old default layout (Note 44/45).

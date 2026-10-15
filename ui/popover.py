@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QFormLayout, QFrame, QHBoxL
 
 from i18n import tr
 from mapping import (GYRO_IDS, INPUT_LABELS, STICK_IDS, TOUCH_IDS, TRIGGER_IDS, AxisMapping, ButtonMapping,
-                     layer_label, unreliable_inputs)
+                     copy_settings_into, layer_label, settings_from_text, settings_to_text, unreliable_inputs)
 from ui.valuebox import PlainSpin, ValueBox
 
 NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
@@ -45,6 +45,7 @@ class MappingPopover(QFrame):
         self.on_change = on_change
         self.extra = extra or {}
         self._loading = True
+        self._editable = True  # False: an axis that only shows the settings it inherits in this layer
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(14, 12, 14, 12)
@@ -57,7 +58,7 @@ class MappingPopover(QFrame):
         head.addWidget(sub)
         head.addStretch()
         layer = self.extra.get("layer", "")
-        if isinstance(mapping, ButtonMapping):
+        if isinstance(mapping, ButtonMapping) or layer:
             chip = QLabel(tr("Layer: {}", "Слой: {}").format(layer_label(layer)))
             chip.setStyleSheet("color: #b48ef0; border: 1px solid #b48ef0; border-radius: 9px; padding: 1px 8px;")
             head.addWidget(chip)
@@ -93,9 +94,92 @@ class MappingPopover(QFrame):
         self.label_edit.setPlaceholderText(tr("e.g. Pan 1, Strobe, Scene 2…", "напр. Pan 1, Strobe, Сцена 2…"))
         self.form.addRow(tr("Label", "Етикет"), self.label_edit)
         self._load()
+        self._connect_common()
+        self._build_tools(lay)
         self._loading = False
         self._refresh_visibility()
+        self._refresh_tools()
         self.setMinimumWidth(370)
+
+    # ---------------------------------------------------------------- copy / paste
+    def _kind(self) -> str:
+        return "button" if isinstance(self.m, ButtonMapping) else "axis"
+
+    def _build_tools(self, lay):
+        row = QHBoxLayout()
+        self.copy_btn = QPushButton(tr("Copy settings", "Копирай настройките"))
+        self.copy_btn.setToolTip(tr("Copies everything of this input (note, CC, channel, mode, speed…) so you can "
+                                    "paste it on another button, in another layer or profile, or send it to a friend.",
+                                    "Копира всичко от този вход (нота, CC, канал, режим, скорост…), за да го "
+                                    "поставиш на друг бутон, в друг слой или профил, или да го пратиш на приятел."))
+        self.paste_btn = QPushButton(tr("Paste settings", "Постави настройките"))
+        self.paste_btn.setToolTip(tr("Replaces all settings of this input with the copied ones.",
+                                     "Замества всички настройки на този вход с копираните."))
+        row.addWidget(self.copy_btn)
+        row.addWidget(self.paste_btn)
+        self.paste_new_btn = None
+        if self._kind() == "button":
+            self.paste_new_btn = QPushButton(tr("Paste with a new number", "Постави с нов номер"))
+            self.paste_new_btn.setToolTip(tr("Same settings, but with the next free note / CC / program number, "
+                                             "so two buttons don't send the same thing.",
+                                             "Същите настройки, но със следващия свободен номер на нота / CC / "
+                                             "програма, за да не пращат два бутона едно и също."))
+            row.addWidget(self.paste_new_btn)
+        lay.addLayout(row)
+        self.tool_status = QLabel()
+        self.tool_status.setObjectName("muted")
+        lay.addWidget(self.tool_status)
+        self.copy_btn.clicked.connect(self._copy)
+        self.paste_btn.clicked.connect(lambda: self._paste(False))
+        if self.paste_new_btn is not None:
+            self.paste_new_btn.clicked.connect(lambda: self._paste(True))
+
+    def _clipboard_settings(self):
+        return settings_from_text(QGuiApplication.clipboard().text(), self._kind())
+
+    def _refresh_tools(self):
+        ok = self._editable and self._clipboard_settings() is not None
+        self.paste_btn.setEnabled(ok)
+        if self.paste_new_btn is not None:
+            self.paste_new_btn.setEnabled(ok)
+
+    def showEvent(self, e):
+        self._refresh_tools()  # something may have been copied since this panel was created
+        super().showEvent(e)
+
+    def _copy(self):
+        QGuiApplication.clipboard().setText(settings_to_text(self.m))
+        self.tool_status.setText(tr("Copied. Open another input and press “Paste settings”.",
+                                    "Копирано. Отвори друг вход и натисни „Постави настройките“."))
+        self._refresh_tools()
+
+    def _next_free_number(self, kind: str, channel: int) -> int | None:
+        used = self._usage(kind, channel, (self.extra.get("layer", ""), self.input_id))
+        order = list(range(57, 128)) + list(range(0, 57)) if kind == "note" else range(0, 128)
+        return next((n for n in order if n not in used), None)
+
+    def _paste(self, new_number: bool):
+        src = self._clipboard_settings()
+        if src is None or not self._editable:
+            return
+        if self._kind() == "axis":
+            src = src.adapted_for(self.input_id)
+        elif new_number and src.action == "midi":
+            n = self._next_free_number(src.type, src.channel)
+            if n is not None:
+                src.number = n
+        copy_settings_into(self.m, src)
+        self._reload()
+        self.on_change(self.input_id)
+        self.tool_status.setText(tr("Pasted.", "Поставено."))
+
+    def _reload(self):
+        """Show the settings of `self.m` again (after a paste, or when an axis changes layer settings)."""
+        self._loading = True
+        self._load()
+        self._loading = False
+        self._refresh_visibility()
+        self._refresh_tools()
 
     # ---------------------------------------------------------------- button
     def _build_button(self):
@@ -232,6 +316,25 @@ class MappingPopover(QFrame):
             "Връщането на стика от пружината се игнорира: главата остава, където си я оставил.\n"
             "Стикът я поема отново, когато стигне до тази позиция (без скок)."))
         self.invert = QCheckBox(tr("Invert direction", "Инвертирай посоката"))
+        layer = self.extra.get("layer", "")
+        if layer:  # inside a layer: the axis may have its own settings there
+            self.own = QCheckBox(tr("Own settings in this layer", "Собствени настройки в този слой"))
+            self.own.setToolTip(tr("Off: the axis behaves as in the base layer (or the layer it inherits from).\n"
+                                   "On: it starts as a copy and you can change anything here: speed, absolute "
+                                   "position, even another CC. Nothing jumps when you switch layers.",
+                                   "Изключено: оста се държи както в основния слой (или в слоя, от който наследява).\n"
+                                   "Включено: започва като копие и можеш да промениш всичко тук: скорост, абсолютна "
+                                   "позиция, дори друг CC. При смяна на слоя няма скокове."))
+            self.own_note = QLabel()
+            self.own_note.setObjectName("muted")
+            self.own_note.setWordWrap(True)
+            self.form.addRow("", self.own)
+            self.form.addRow("", self.own_note)
+            src = self.extra.get("axis_source", lambda: None)()
+            self.own.setChecked(src == layer)
+            self._editable = src == layer
+            self._update_own_note()
+            self.own.toggled.connect(self._own_toggled)
         self.form.addRow(tr("Mode", "Режим"), self.amode)
         self.form.addRow(tr("Channel", "Канал"), self.channel)
         self.form.addRow("CC", self.cc)
@@ -253,13 +356,34 @@ class MappingPopover(QFrame):
         self.hold.toggled.connect(self._changed)
         self.invert.toggled.connect(self._changed)
 
+    def _update_own_note(self):
+        layer = self.extra.get("layer", "")
+        src = self.extra.get("axis_source", lambda: None)()
+        if src == layer:
+            text = tr("This layer has its own settings for this axis.", "Този слой има собствени настройки за тази ос.")
+        elif src is None:
+            text = tr("Using the base settings of this axis.", "Ползва основните настройки на оста.")
+        else:
+            text = tr("Using the settings of the layer “{}”.", "Ползва настройките на слой „{}“.").format(layer_label(src))
+        self.own_note.setText(text)
+
+    def _own_toggled(self, on: bool):
+        if self._loading:
+            return
+        make = self.extra.get("override_create" if on else "override_remove")
+        if make is None:
+            return
+        self.m = make()
+        self._editable = on
+        self._update_own_note()
+        self._reload()
+        self.on_change(self.input_id)
+
     # ---------------------------------------------------------------- data
     def _load(self):
         m = self.m
         self.enabled.setChecked(m.enabled)
-        self.enabled.toggled.connect(self._changed)
         self.label_edit.setText(m.label)
-        self.label_edit.textChanged.connect(self._changed)
         if isinstance(m, ButtonMapping):
             _set_combo(self.action, m.action)
             _set_combo(self.type, m.type)
@@ -281,8 +405,12 @@ class MappingPopover(QFrame):
             self.hold.setChecked(m.hold)
             self.invert.setChecked(m.invert)
 
+    def _connect_common(self):
+        self.enabled.toggled.connect(self._changed)
+        self.label_edit.textChanged.connect(self._changed)
+
     def _changed(self, *_):
-        if self._loading:
+        if self._loading or not self._editable:
             return
         m = self.m
         m.enabled = self.enabled.isChecked()
@@ -359,8 +487,11 @@ class MappingPopover(QFrame):
                    "При пълно изместване: каква част от целия обхват се изминава за секунда.\n"
                    "0.50 = от край до край за 2 секунди."))
             self._show_row(self.center_btn, moving or touch or (stick and m.hold))
-            self.expo.setEnabled(m.curve == "expo")
-            self.hires.setEnabled(m.cc < 32)
+            for w in (self.enabled, self.amode, self.channel, self.cc, self.deadzone, self.curve, self.speed,
+                      self.span, self.hold, self.invert, self.center_btn, self.label_edit):
+                w.setEnabled(self._editable)
+            self.expo.setEnabled(self._editable and m.curve == "expo")
+            self.hires.setEnabled(self._editable and m.cc < 32)
             self.hires.setToolTip("" if m.cc < 32 else tr("14-bit is only possible for CC 0–31 (LSB = CC+32).",
                                                                    "14-бит е възможен само за CC 0–31 (LSB = CC+32)."))
             if self.input_id in TRIGGER_IDS:

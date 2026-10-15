@@ -9,6 +9,33 @@ import i18n
 from updater import parse_version
 
 CHANGES: dict[str, tuple[list[str], list[str]]] = {
+    "1.7.0": (
+        [
+            "**Sticks (and triggers) can behave differently in each layer.** In a layer, open an axis and tick "
+            "“Own settings in this layer”: it starts as a copy of the base, then change anything, e.g. slow rate "
+            "on the base layer and absolute position on another layer. The label shows where the settings come from.",
+            "**It can even drive another CC per layer.** A different CC starts from the middle and keeps its own "
+            "position, so the original parameter stays exactly where you left it.",
+            "**No jumps when you change layer.** An absolute stick that enters a layer keeps the value its CC "
+            "already had until the stick reaches it, then follows the stick.",
+            "**Copy settings / Paste settings** in every editor: copies everything of a button or axis (note, CC, "
+            "channel, mode, speed…) so you can paste it on another input, in another layer or profile, or send it "
+            "to a friend as text. “Paste with a new number” gives the next free number.",
+        ],
+        [
+            "**Стиковете (и тригерите) могат да се държат различно във всеки слой.** В слой отвори ос и "
+            "отметни „Собствени настройки в този слой“: започва като копие на основните, после променяш каквото "
+            "искаш, напр. бавен скоростен режим на основния слой и абсолютна позиция на друг. Етикетът показва "
+            "откъде идват настройките.",
+            "**Може дори да управлява друг CC във всеки слой.** Другият CC започва от средата и пази своя "
+            "позиция, така че първоначалният параметър си остава точно където си го оставил.",
+            "**Без скокове при смяна на слоя.** Абсолютен стик, който влиза в слой, запазва стойността, която "
+            "неговият CC вече има, докато стикът я достигне, после следва стика.",
+            "**Копирай / Постави настройките** във всеки панел: копира всичко от бутон или ос (нота, CC, канал, "
+            "режим, скорост…), за да го поставиш на друг вход, в друг слой или профил, или да го пратиш на "
+            "приятел като текст. „Постави с нов номер“ дава следващия свободен номер.",
+        ],
+    ),
     "1.6.0": (
         [
             "**The version is always visible**, bottom right (ⓘ Xbox MIDI Bridge 1.6.0). Click it for the "

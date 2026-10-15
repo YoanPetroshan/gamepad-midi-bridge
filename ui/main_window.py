@@ -32,6 +32,19 @@ from version import APP_VERSION
 UI_HZ = 30
 
 
+def _parse_slot(text: str):
+    """"1:10:0" → (1, 10, False): the key a held value is saved under (channel : CC : 14-bit)."""
+    try:
+        ch, cc, hi = text.split(":")
+        return int(ch), int(cc), hi == "1"
+    except ValueError:
+        return None
+
+
+def _slot_text(slot) -> str:
+    return f"{slot[0]}:{slot[1]}:{int(slot[2])}"
+
+
 def displayed_layer(edit_layer: str, pinned: bool, live: str, prev_live: str) -> str:
     """Which layer the diagram shows after the held modifiers changed from `prev_live` to `live`.
 
@@ -58,8 +71,10 @@ class MainWindow(QMainWindow):
         self.midi.open(st.get("midi_port"))
         self.reader = ReaderProcess()
         self.reader.start(st.get("controller"))
-        rate_values = st.get("rate_values") if st.get("persist_rate_values") else None
-        self.engine = Engine(self.profile, self.midi, self.reader, rate_values=rate_values)
+        keep = bool(st.get("persist_rate_values"))
+        slots = {_parse_slot(k): v for k, v in (st.get("rate_slots") or {}).items() if _parse_slot(k)} if keep else None
+        legacy = st.get("rate_values") if keep and not st.get("rate_slots") else None  # saved per axis by 1.6 and older
+        self.engine = Engine(self.profile, self.midi, self.reader, rate_values=legacy, slot_values=slots)
         self.engine.reader_prefer = st.get("controller")
         self.engine.seen.update(i for i in st.get("seen_inputs", []) if i in UNRELIABLE_INPUTS)
         self.engine.start()
@@ -513,9 +528,22 @@ class MainWindow(QMainWindow):
                                 .format(layer_label(key))) != QMessageBox.Yes:
             return
         with self.engine.lock:
-            self.profile.layers.pop(key, None)
+            self.profile.clear_layer(key)
+        self.engine.refresh_axes()  # in case this layer is the one held right now
         self._save_timer.start()
         self._refresh_layers()
+
+    def _axis_override(self, key: str, axis: str, own: bool):
+        """Give an axis its own settings in layer `key` (a copy of what applies there now), or take them
+        away again. Returns the settings that apply afterwards."""
+        with self.engine.lock:
+            if own:
+                self.profile.ensure_axis_override(key, axis)
+            else:
+                self.profile.remove_axis_override(key, axis)
+            m = self.profile.effective_axis(key, axis)
+        self._save_timer.start()
+        return m
 
     # ---------------------------------------------------------------- editing
     def open_editor(self, input_id: str, anchor=None):
@@ -537,7 +565,7 @@ class MainWindow(QMainWindow):
                 .format(INPUT_LABELS[input_id], layer_label(key)), 6000)
             return
         if is_axis:
-            m = self.profile.axes[input_id]
+            m = self.profile.effective_axis(key, input_id)  # this layer's own settings, or the inherited ones
         elif key:
             with self.engine.lock:
                 m = self.profile.ensure_button_map(key, input_id)
@@ -545,6 +573,9 @@ class MainWindow(QMainWindow):
             m = self.profile.buttons[input_id]
         extra = {"seen": input_id in self.engine.seen,
                  "layer": key,
+                 "axis_source": lambda: self.profile.axis_source(key, input_id),
+                 "override_create": lambda: self._axis_override(key, input_id, True),
+                 "override_remove": lambda: self._axis_override(key, input_id, False),
                  "usage": lambda kind, ch, excl: self.profile.usage(kind, ch, excl),
                  "inherited": not is_axis and self.profile.inherited_modifier(key, input_id),
                  "options": self.profile.options,
@@ -768,10 +799,11 @@ class MainWindow(QMainWindow):
     def _save_rate_values(self):
         with self.engine.lock:
             self.engine.rate_dirty = False
-            values = dict(self.engine.rate_values)
+            values = {_slot_text(k): round(v, 5) for k, v in self.engine.slot_values.items()}
         self._last_rate_save = time.time()
         if self.store.settings.get("persist_rate_values"):
-            self.store.settings["rate_values"] = values
+            self.store.settings["rate_slots"] = values
+            self.store.settings.pop("rate_values", None)  # the old per-axis format
             self.store.save_settings()
 
     def closeEvent(self, e):
