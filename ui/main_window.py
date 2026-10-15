@@ -6,7 +6,7 @@ import time
 
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QAction, QGuiApplication
-from PySide6.QtWidgets import (QApplication, QComboBox, QHBoxLayout, QInputDialog, QLabel,
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QHBoxLayout, QInputDialog, QLabel,
                                QMainWindow, QMessageBox, QPushButton, QSizePolicy, QSplitter,
                                QTabWidget, QToolBar, QVBoxLayout, QWidget)
 
@@ -26,6 +26,19 @@ from ui.update_dialog import UpdateController, show_whats_new
 from version import APP_VERSION
 
 UI_HZ = 30
+
+
+def displayed_layer(edit_layer: str, pinned: bool, live: str, prev_live: str) -> str:
+    """Which layer the diagram shows after the held modifiers changed from `prev_live` to `live`.
+
+    Holding a modifier shows its layer. Letting go returns to the base layer, unless the layer
+    is pinned ("Keep layer"), so you can edit it without holding the button.
+    """
+    if live == prev_live:
+        return edit_layer
+    if live:
+        return live
+    return edit_layer if pinned else ""
 
 
 class MainWindow(QMainWindow):
@@ -50,7 +63,8 @@ class MainWindow(QMainWindow):
         self._last_rate_save = time.time()
         self._devices_shown: list[str] | None = None
         self.edit_layer = ""  # the layer being shown and edited
-        self._live_layer = ""
+        self._live_layer = ""  # the layer of the modifiers held on the controller right now
+        self._known_layers: set[str] = set()  # layers that existed at the last refresh
 
         self._build_toolbar()
         self._info_applied: dict | None = None
@@ -181,6 +195,9 @@ class MainWindow(QMainWindow):
         sp.led.blockSignals(True)
         sp.led.setChecked(self.profile.options.led_layers)
         sp.led.blockSignals(False)
+        sp.auto_fill.blockSignals(True)
+        sp.auto_fill.setChecked(self.profile.options.auto_fill_layers)
+        sp.auto_fill.blockSignals(False)
         sp.auto_update.blockSignals(True)
         sp.auto_update.setChecked(bool(st.get("auto_update_check", True)))
         sp.auto_update.blockSignals(False)
@@ -248,6 +265,7 @@ class MainWindow(QMainWindow):
             self.profile.options.max_rate_hz = sp.rate.value()
             self.profile.options.center_time = sp.glide.value()
             self.profile.options.led_layers = sp.led.isChecked()
+            self.profile.options.auto_fill_layers = sp.auto_fill.isChecked()
             self.engine._led_layer = None  # repaint the light bar
         self.store.settings["persist_rate_values"] = sp.persist.isChecked()
         self.store.settings["resend_on_start"] = sp.resend.isChecked()
@@ -290,11 +308,20 @@ class MainWindow(QMainWindow):
                                        "контролера и приложението превключва на неговия слой."))
         self.layer_combo.activated.connect(lambda _: self._select_layer(self.layer_combo.currentData()))
         h.addWidget(self.layer_combo)
+        self.pin_cb = QCheckBox(tr("Keep layer", "Задръж слоя"))
+        self.pin_cb.setToolTip(tr("Off: the diagram shows a layer only while you hold its modifier on the controller, "
+                                  "and goes back to the base layer when you let go.\n"
+                                  "On: the layer stays on screen so you can edit it without holding the button.",
+                                  "Изключено: схемата показва слоя само докато държиш модификатора на контролера и "
+                                  "се връща на основния, когато го пуснеш.\n"
+                                  "Включено: слоят остава на екрана, за да го редактираш, без да държиш бутона."))
+        self.pin_cb.toggled.connect(self._pin_toggled)
+        h.addWidget(self.pin_cb)
         self.fill_btn = QPushButton(tr("Fill empty", "Попълни свободните"))
-        self.fill_btn.setToolTip(tr("Gives free Note numbers (channel 1, momentary) to every\n"
-                                    "unassigned button in this layer.",
-                                    "Дава свободни Note номера (канал 1, momentary) на всички\n"
-                                    "незададени бутони в този слой."))
+        self.fill_btn.setToolTip(tr("Gives free Note numbers (momentary) to every unassigned button in this layer.\n"
+                                    "New layers are filled automatically (Settings turns that off).",
+                                    "Дава свободни Note номера (momentary) на всички незададени бутони в този слой.\n"
+                                    "Новите слоеве се попълват автоматично (изключва се от Настройки)."))
         self.fill_btn.clicked.connect(self.fill_layer)
         h.addWidget(self.fill_btn)
         self.clear_btn = QPushButton(tr("Clear layer", "Изчисти слоя"))
@@ -309,6 +336,15 @@ class MainWindow(QMainWindow):
         layers = self.profile.reachable_layers()
         if self.edit_layer not in layers:
             self.edit_layer = ""
+        self._known_layers = set(layers)
+        if self._popover is not None and self.view.layer != self.edit_layer:
+            try:
+                self._popover.close()  # it edits a button of the layer that just went away
+            except RuntimeError:
+                pass
+        self.pin_cb.blockSignals(True)
+        self.pin_cb.setEnabled(len(layers) > 1)
+        self.pin_cb.blockSignals(False)
         self.layer_combo.blockSignals(True)
         self.layer_combo.clear()
         for key in layers:
@@ -329,36 +365,62 @@ class MainWindow(QMainWindow):
         self.view.update()
 
     def _select_layer(self, key: str):
+        """Picked from the list: an explicit choice, so the layer stays until you pick another."""
         self.edit_layer = key or ""
-        if self._popover is not None:
-            try:
-                self._popover.close()
-            except RuntimeError:
-                pass
+        self._set_pin(bool(key))
         self._refresh_layers()
+
+    def _set_pin(self, on: bool):
+        self.pin_cb.blockSignals(True)
+        self.pin_cb.setChecked(on)
+        self.pin_cb.blockSignals(False)
+
+    def _pin_toggled(self, on: bool):
+        if not on:  # let go: follow the controller again (the layer held right now, or the base)
+            self.edit_layer = self._live_layer
+            self._refresh_layers()
+
+    def _fillable_buttons(self) -> list[str]:
+        """Buttons this controller has (and reports) that a new layer can give a Note to."""
+        visible = set(self.view.visible_inputs())
+        return [b for b in BUTTON_IDS
+                if b in visible and not (b in unreliable_inputs() and b not in self.engine.seen)]
+
+    @staticmethod
+    def _slot_text(filled: list[tuple[str, int, int]]) -> str:
+        notes = [n for _, _, n in filled]
+        chans = sorted({c for _, c, _ in filled})
+        text = f"Note {min(notes)}–{max(notes)}" if len(notes) > 1 else f"Note {notes[0]}"
+        if chans != [1]:
+            text += tr(" (channels {})", " (канали {})").format(", ".join(map(str, chans)))
+        return text
 
     def fill_layer(self):
         key = self.edit_layer
-        mods = layer_mods(key)
-        filled = []
-        visible = set(self.view.visible_inputs())
         with self.engine.lock:
-            for b in BUTTON_IDS:
-                if b in mods or b not in visible or (b in unreliable_inputs() and b not in self.engine.seen):
-                    continue
-                e = self.profile.effective_map(key, b)
-                if e is not None and e.enabled:
-                    continue  # assigned, or an inherited modifier
-                m = self.profile.buttons[b] if not key else self.profile.ensure_button_map(key, b)
-                m.enabled = False
-                n = self.profile.free_note()
-                m.enabled, m.action, m.type, m.mode, m.channel, m.number = True, "midi", "note", "momentary", 1, n
-                filled.append(f"{INPUT_LABELS[b]}={n}")
+            filled = self.profile.fill_layer(key, self._fillable_buttons())
         self._save_timer.start()
         self._refresh_layers()
         self.statusBar().showMessage(
-            (tr("Filled: ", "Попълнени: ") + ", ".join(filled)) if filled
-            else tr("No unassigned buttons in this layer.", "Няма незададени бутони в този слой."), 8000)
+            tr("Filled {} buttons: {}", "Попълнени {} бутона: {}").format(len(filled), self._slot_text(filled))
+            if filled else tr("No unassigned buttons in this layer.", "Няма незададени бутони в този слой."), 8000)
+
+    def _autofill_new_layers(self):
+        """A button just became a modifier: give the layers that appeared free Notes right away."""
+        new = [k for k in self.profile.reachable_layers() if k not in self._known_layers]
+        if not new or not self.profile.options.auto_fill_layers:
+            return
+        buttons = self._fillable_buttons()
+        parts = []
+        with self.engine.lock:
+            for key in new:
+                filled = self.profile.fill_layer(key, buttons)
+                if filled:
+                    parts.append(f"“{layer_label(key)}”: {len(filled)} ({self._slot_text(filled)})")
+        if parts:
+            self.statusBar().showMessage(
+                tr("New layer filled with free Notes, change any of them if you like. ",
+                   "Новият слой е попълнен със свободни Note номера, променяй ги свободно. ") + " · ".join(parts), 12000)
 
     def clear_layer(self):
         key = self.edit_layer
@@ -401,6 +463,7 @@ class MainWindow(QMainWindow):
             m = self.profile.buttons[input_id]
         extra = {"seen": input_id in self.engine.seen,
                  "layer": key,
+                 "usage": lambda kind, ch, excl: self.profile.usage(kind, ch, excl),
                  "inherited": not is_axis and self.profile.inherited_modifier(key, input_id),
                  "options": self.profile.options,
                  "options_changed": self._options_changed_in_popover,
@@ -427,6 +490,7 @@ class MainWindow(QMainWindow):
     def _mapping_changed(self, input_id: str):
         # The edit is already in the profile object; sync the engine without jumps.
         self.engine.mapping_changed(input_id)
+        self._autofill_new_layers()
         self._refresh_layers()
         self._save_timer.start()
 
@@ -449,6 +513,7 @@ class MainWindow(QMainWindow):
 
     def _activate(self, profile):
         self.edit_layer = ""
+        self._set_pin(False)
         self.store.save_profile(self.profile)
         self.profile = profile
         self.engine.set_profile(profile)
@@ -464,6 +529,9 @@ class MainWindow(QMainWindow):
         sp.led.blockSignals(True)
         sp.led.setChecked(profile.options.led_layers)
         sp.led.blockSignals(False)
+        sp.auto_fill.blockSignals(True)
+        sp.auto_fill.setChecked(profile.options.auto_fill_layers)
+        sp.auto_fill.blockSignals(False)
         self._reload_profiles()
 
     def switch_profile(self, name: str):
@@ -553,9 +621,8 @@ class MainWindow(QMainWindow):
             self.store.save_settings()
         live = snap["layer"]
         if live != self._live_layer:
+            self.edit_layer = displayed_layer(self.edit_layer, self.pin_cb.isChecked(), live, self._live_layer)
             self._live_layer = live
-            if live:  # held modifier → show and edit its layer
-                self.edit_layer = live
             self._refresh_layers()
         self.view.layer_live = bool(live) and live == self.edit_layer
         self.view.set_state(snap, values, snap["outputs"])
@@ -572,6 +639,7 @@ class MainWindow(QMainWindow):
             iid, key = snap["learned"]
             if iid not in AXIS_IDS:
                 self.edit_layer = key
+                self._set_pin(bool(key))  # you picked it to edit it: keep it on screen
                 self._refresh_layers()
             self.open_editor(iid)
 

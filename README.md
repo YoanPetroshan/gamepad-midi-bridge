@@ -134,8 +134,9 @@ restart”). With “Send them on startup” they are re-sent 1.5 s after launch
 
 ## Modifiers and layers
 
-Any button can be a **modifier** (like Shift). While it is held, the other buttons are in a
-new **layer** with their own values, so one button gives many commands:
+Any button can be a **modifier** (like Shift). While it is held, or after you switch it on
+(Mode → **Toggle**), the other buttons are in a new **layer** with their own values, so one
+button gives many commands:
 
 | You press | Layer | Example |
 |---|---|---|
@@ -152,7 +153,8 @@ new **layer** with their own values, so one button gives many commands:
   “LB + D-pad ↑” layer. Press the D-pad first and it sends its base-layer value.
 - A modifier from a lower layer **stays a modifier** in deeper layers (inherited). To make it
   a normal button in some layer, open it there, tick “Enabled” and assign MIDI.
-- A modifier alone sends no MIDI.
+- A modifier alone sends no MIDI. Its Mode is **Hold** (the layer is active while the button is
+  pressed) or **Toggle** (press once to switch the layer on, press again to switch it off).
 - A button with no value in a layer **does nothing** there (label “not set in this layer”).
 - Impossible D-pad combos (↑+↓, ←+→) don't create layers.
 - Sticks and LT/RT are shared by all layers.
@@ -161,13 +163,19 @@ new **layer** with their own values, so one button gives many commands:
 
 **In the interface**
 1. Click LB → Function → **Modifier**. The **Layer** bar appears on top.
-2. Hold LB on the controller: the app switches to the “LB” layer and stays there
-   (or pick it from the drop-down).
-3. Click a button → set its value for this layer. Or **Fill empty**: every unassigned button
-   gets a free Note number (channel 1). Numbers used in any layer are skipped.
+2. Hold LB on the controller: the diagram shows the “LB” layer, and goes back to the base
+   layer when you let go. Tick **Keep layer** (next to the layer list) to keep a layer on
+   screen without holding the button; picking a layer from the list does that too.
+3. A **new layer is filled automatically**: every button without a value gets a free Note
+   number (momentary; the next channel once the 128 notes of a channel are taken). Change any
+   of them as you like. **Fill empty** does the same by hand, and Settings → “Fill new layers
+   automatically” turns the automatic part off.
 4. For D-pad modifiers inside the LB layer: in the LB layer open D-pad ↑ → Function → Modifier.
 5. **Learn** works with layers: hold the modifiers and press the button. A modifier pressed
    and released on its own opens the modifier itself.
+- **Number fields** (channel, note, CC, velocity…) have no up/down arrows: click the number
+  and type a new one, or open the list. In the list, every value that is already used shows
+  **which button of which layer uses it**.
 - Modifiers have a purple outline. If the same value (type, channel, number) is assigned
   to two buttons, the label shows **“duplicate”**.
 

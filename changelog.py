@@ -9,6 +9,32 @@ from i18n import LANG
 from updater import parse_version
 
 CHANGES: dict[str, tuple[list[str], list[str]]] = {
+    "1.4.0": (
+        [
+            "**Modifiers can be Toggle:** press once to switch the layer on, press again to switch "
+            "it off (Mode → Toggle), or keep the old behaviour, Hold.",
+            "**The diagram follows the controller:** while you hold a modifier it shows that layer and "
+            "goes back to the base layer when you let go. New checkbox **Keep layer** keeps a layer on "
+            "screen for editing.",
+            "**New layers fill themselves:** when a button becomes a modifier, every unassigned "
+            "button of the new layer gets a free Note number right away (the next channel when a "
+            "channel runs out). Change any of them later. Can be switched off in Settings.",
+            "**Number fields without arrows:** click the number and type a new one, or open the "
+            "list of all values. Values already in use show which button of which layer uses them.",
+        ],
+        [
+            "**Модификаторите могат да са Toggle:** натискаш веднъж за включване на слоя и пак за "
+            "изключване (Режим → Toggle), или оставяш старото поведение, Задържане.",
+            "**Схемата следва контролера:** докато държиш модификатор, показва неговия слой и се "
+            "връща на основния, когато го пуснеш. Нова отметка **Задръж слоя** оставя слой на екрана "
+            "за редактиране.",
+            "**Новите слоеве се попълват сами:** когато бутон стане модификатор, всеки свободен "
+            "бутон на новия слой получава веднага свободен Note номер (следващ канал, когато каналът "
+            "свърши). После променяш който искаш. Изключва се от Настройки.",
+            "**Полета с числа без стрелки:** цъкаш върху числото и пишеш ново или отваряш списъка "
+            "с всички стойности. Заетите показват кой бутон от кой слой ги ползва.",
+        ],
+    ),
     "1.3.1": (
         [
             "**Fixed: PlayStation controllers over Bluetooth.** The DualSense / DualShock 4 is now "

@@ -96,7 +96,8 @@ class Engine:
         self._baseline = False
 
         # layers (modifiers)
-        self.active_mods: list[str] = []  # held modifiers, in press order
+        self.active_mods: list[str] = []  # active modifiers (held or toggled on), in press order
+        self._toggled_mods: set[str] = set()  # the ones switched on with Mode → Toggle
         self._held: dict[str, str] = {}  # pressed button → key of the layer it was pressed in
         self._learn_mod: tuple[str, str] | None = None  # modifier pressed during Learn
 
@@ -247,6 +248,7 @@ class Engine:
                 self._button_release(b, m)
         self._held.clear()
         self.active_mods.clear()
+        self._toggled_mods.clear()
         self._learn_mod = None
 
     # ------------------------------------------------------------ step
@@ -464,13 +466,24 @@ class Engine:
         key = self.current_layer
         m = self.profile.effective_map(key, b)
         if m and m.enabled and m.action == "modifier":
-            self.active_mods.append(b)  # following buttons are in a new layer
+            if m.mode == "toggle":  # press to switch the layer on, press again to switch it off
+                if b in self._toggled_mods:
+                    self._toggled_mods.discard(b)
+                    if b in self.active_mods:
+                        self.active_mods.remove(b)
+                else:
+                    self._toggled_mods.add(b)
+                    self.active_mods.append(b)
+            else:
+                self.active_mods.append(b)  # held: following buttons are in a new layer
             return
         self._held[b] = key
         if m and m.enabled:
             self._button_press(b, m, key)
 
     def _on_release(self, b: str) -> None:
+        if b in self._toggled_mods:
+            return  # a toggled modifier stays on until it is pressed again
         if b in self.active_mods:
             self.active_mods.remove(b)
             return
@@ -568,6 +581,7 @@ class Engine:
             if getattr(self, "profile", None) is not None and self._held:
                 self._release_all_held()  # note off with the old profile's mapping
             self.active_mods.clear()
+            self._toggled_mods.clear()
             self._held.clear()
             self.profile = profile
             self.toggles.clear()

@@ -5,13 +5,13 @@ from typing import Callable
 
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QGuiApplication
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QFrame,
-                               QHBoxLayout, QLabel, QLineEdit, QPushButton, QSpinBox,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QFormLayout, QFrame, QHBoxLayout, QLabel,
+                               QLineEdit, QPushButton, QVBoxLayout, QWidget)
 
 from i18n import tr
 from mapping import (GYRO_IDS, INPUT_LABELS, STICK_IDS, TOUCH_IDS, TRIGGER_IDS, AxisMapping, ButtonMapping,
                      layer_label, unreliable_inputs)
+from ui.valuebox import PlainSpin, ValueBox
 
 NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
@@ -107,7 +107,7 @@ class MappingPopover(QFrame):
                               ("fine", tr("Fine (while held)", "Фино (докато е натиснат)")),
                               ("gyro", tr("Gyro (PlayStation): moves with the controller",
                                           "Жиро (PlayStation): мести с контролера"))])
-        self.glide = QDoubleSpinBox()
+        self.glide = PlainSpin()
         self.glide.setRange(0.0, 10.0)
         self.glide.setSingleStep(0.1)
         self.glide.setDecimals(1)
@@ -121,10 +121,8 @@ class MappingPopover(QFrame):
         self.glide.valueChanged.connect(self._glide_changed)
         self.type = _combo([("note", "Note"), ("cc", "CC"), ("pc", "Program Change")])
         self.mode = QComboBox()
-        self.channel = QSpinBox()
-        self.channel.setRange(1, 16)
-        self.number = QSpinBox()
-        self.number.setRange(0, 127)
+        self.channel = ValueBox(1, 16)
+        self.number = ValueBox(0, 127, describe=self._describe_number, owners=self._number_owners)
         self.note_lbl = QLabel()
         self.note_lbl.setObjectName("muted")
         num_row = QWidget()
@@ -132,8 +130,7 @@ class MappingPopover(QFrame):
         nl.setContentsMargins(0, 0, 0, 0)
         nl.addWidget(self.number, 1)
         nl.addWidget(self.note_lbl)
-        self.value = QSpinBox()
-        self.value.setRange(0, 127)
+        self.value = ValueBox(0, 127)
         self.form.addRow(tr("Function", "Функция"), self.action)
         self.form.addRow(tr("Glide time", "Връщане за"), self.glide)
         self.form.addRow(tr("Type", "Тип"), self.type)
@@ -152,14 +149,33 @@ class MappingPopover(QFrame):
         cur = self.mode.currentData() or self.m.mode
         self.mode.blockSignals(True)
         self.mode.clear()
-        self.mode.addItem(tr("Momentary (press/release)", "Momentary (натиснат/пуснат)"), "momentary")
-        self.mode.addItem(tr("Toggle (on/off)", "Toggle (вкл./изкл.)"), "toggle")
+        if getattr(self, "action", None) is not None and self.action.currentData() in ("modifier", "gyro"):
+            # for a modifier / the gyro: hold it, or switch it on and off with each press
+            self.mode.addItem(tr("Hold (active while pressed)", "Задържане (активен, докато е натиснат)"), "momentary")
+            self.mode.addItem(tr("Toggle (press on, press again off)", "Toggle (натисни – вкл., пак – изкл.)"), "toggle")
+        else:
+            self.mode.addItem(tr("Momentary (press/release)", "Momentary (натиснат/пуснат)"), "momentary")
+            self.mode.addItem(tr("Toggle (on/off)", "Toggle (вкл./изкл.)"), "toggle")
         if t == "cc":
             self.mode.addItem(tr("Fixed value", "Фиксирана стойност"), "value")
         _set_combo(self.mode, cur)
         if self.mode.currentIndex() < 0:
             self.mode.setCurrentIndex(0)
         self.mode.blockSignals(False)
+
+    # ---------------------------------------------------------------- what is already taken
+    def _usage(self, kind: str, channel: int, exclude) -> dict[int, list[str]]:
+        provider = self.extra.get("usage")
+        return provider(kind, channel, exclude) if provider else {}
+
+    def _number_owners(self) -> dict[int, list[str]]:
+        return self._usage(self.m.type, self.m.channel, (self.extra.get("layer", ""), self.input_id))
+
+    def _cc_owners(self) -> dict[int, list[str]]:
+        return self._usage("cc", self.m.channel, ("", self.input_id))
+
+    def _describe_number(self, n: int) -> str:
+        return note_name(n) if self.m.type == "note" else ""
 
     def _glide_changed(self, v):
         opts = self.extra.get("options")
@@ -176,17 +192,15 @@ class MappingPopover(QFrame):
             modes = [("rate", tr("Rate (speed)", "Скоростен (скорост)")),
                      ("absolute", tr("Absolute (position)", "Абсолютен (позиция)"))]
         self.amode = _combo(modes)
-        self.channel = QSpinBox()
-        self.channel.setRange(1, 16)
-        self.cc = QSpinBox()
-        self.cc.setRange(0, 127)
+        self.channel = ValueBox(1, 16)
+        self.cc = ValueBox(0, 127, owners=self._cc_owners)
         self.hires = QCheckBox(tr("14-bit (MSB on CC n, LSB on CC n+32)", "14-бит (MSB на CC n, LSB на CC n+32)"))
-        self.deadzone = QDoubleSpinBox()
+        self.deadzone = PlainSpin()
         self.deadzone.setRange(0.0, 0.9)
         self.deadzone.setSingleStep(0.01)
         self.deadzone.setDecimals(2)
         self.curve = _combo([("linear", tr("Linear", "Линейна")), ("expo", tr("Exponential", "Експоненциална"))])
-        self.expo = QDoubleSpinBox()
+        self.expo = PlainSpin()
         self.expo.setRange(0.0, 1.0)
         self.expo.setSingleStep(0.05)
         self.expo.setDecimals(2)
@@ -198,11 +212,11 @@ class MappingPopover(QFrame):
         cl.addWidget(QLabel(tr("amount", "сила")))
         cl.addWidget(self.expo)
         self.curve_row = curve_row
-        self.speed = QDoubleSpinBox()
+        self.speed = PlainSpin()
         self.speed.setRange(0.05, 5.0)
         self.speed.setSingleStep(0.05)
         self.speed.setDecimals(2)
-        self.span = QDoubleSpinBox()
+        self.span = PlainSpin()
         self.span.setRange(0.05, 1.0)
         self.span.setSingleStep(0.05)
         self.span.setDecimals(2)
@@ -274,7 +288,7 @@ class MappingPopover(QFrame):
         m.enabled = self.enabled.isChecked()
         m.label = self.label_edit.text().strip()
         if isinstance(m, ButtonMapping):
-            if self.sender() is self.type:
+            if self.sender() in (self.type, self.action):
                 self._fill_modes()
             m.action = self.action.currentData()
             m.type = self.type.currentData()
@@ -311,8 +325,8 @@ class MappingPopover(QFrame):
             self._show_row(self.glide, m.action.startswith("center"))
             for w in (self.type, self.mode, self.channel, self.num_row, self.value):
                 self._show_row(w, midi)
-            if m.action == "gyro":
-                self._show_row(self.mode, True)  # momentary = while held, toggle = on/off
+            if m.action in ("gyro", "modifier"):
+                self._show_row(self.mode, True)  # hold = while pressed, toggle = on/off
             if midi:
                 self._show_row(self.mode, m.type != "pc")
                 show_val = m.type == "note" or (m.type == "cc" and m.mode == "value")

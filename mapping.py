@@ -188,6 +188,7 @@ class ProfileOptions:
     max_rate_hz: int = 120  # max CC messages per second per axis
     center_time: float = 1.0  # seconds to glide back to center (0 = instant)
     led_layers: bool = True  # PlayStation light bar shows the active layer's colour
+    auto_fill_layers: bool = True  # a new layer gets free Notes for its unassigned buttons
 
 
 @dataclass
@@ -260,6 +261,58 @@ class Profile:
             if n not in used:
                 return n
         return start
+
+    def free_slot(self, start: int = 57) -> tuple[int, int]:
+        """(channel, note) of the first Note nobody uses: channel 1 first, then the next
+        channel once all 128 notes of a channel are taken (so nothing is ever duplicated)."""
+        used = {(sig[1], sig[2]) for sig in self.used_signatures() if sig[0] == "note"}
+        for ch in range(1, 17):
+            for n in list(range(start, 128)) + list(range(0, start)):
+                if (ch, n) not in used:
+                    return ch, n
+        return 1, start
+
+    def usage(self, kind: str, channel: int, exclude: tuple[str, str] | None = None) -> dict[int, list[str]]:
+        """Who already uses each number of `kind` ("note", "cc" or "pc") on `channel`:
+        {number: ["A · Base", ...]}. `exclude` = (layer key, input id) of the mapping being edited,
+        so it doesn't report itself."""
+        out: dict[int, list[str]] = {}
+
+        def add(n: int, who: str) -> None:
+            names = out.setdefault(n, [])
+            if who not in names:
+                names.append(who)
+
+        for key, b, m in self.all_button_maps():
+            sig = midi_signature(m)
+            if sig and (key, b) != exclude and sig[0] == kind and sig[1] == channel:
+                add(sig[2], f"{INPUT_LABELS[b]} · {layer_label(key)}")
+        if kind == "cc":
+            for a, m in self.axes.items():
+                if m.enabled and m.channel == channel and ("", a) != exclude:
+                    add(m.cc, INPUT_LABELS[a])
+                    if m.hires:
+                        add(m.cc + 32, INPUT_LABELS[a] + " (LSB)")
+        return out
+
+    def fill_layer(self, key: str, buttons: list[str]) -> list[tuple[str, int, int]]:
+        """Give every button of `buttons` that has no value in layer `key` a free Note
+        (momentary). Held modifiers and inherited modifiers are left alone.
+        Returns [(button, channel, note)] for what was filled."""
+        mods = layer_mods(key)
+        filled = []
+        for b in buttons:
+            if b in mods:
+                continue
+            e = self.effective_map(key, b)
+            if e is not None and e.enabled:
+                continue  # already assigned, or an inherited modifier
+            m = self.buttons[b] if not key else self.ensure_button_map(key, b)
+            m.enabled = False  # not counted while looking for a free slot
+            ch, n = self.free_slot()
+            m.enabled, m.action, m.type, m.mode, m.channel, m.number = True, "midi", "note", "momentary", ch, n
+            filled.append((b, ch, n))
+        return filled
 
     def reachable_layers(self, max_depth: int = 4, limit: int = 128) -> list[str]:
         """Layers reachable through modifiers, in discovery order (base first)."""
@@ -402,7 +455,8 @@ def describe_button(m: ButtonMapping) -> str:
     if not m.enabled:
         return tr("Disabled", "Изключен")
     if m.action == "modifier":
-        return tr("Modifier (hold for layer)", "Модификатор (задръж за слой)")
+        return (tr("Modifier (press to switch layer on/off)", "Модификатор (натисни за вкл./изкл. на слой)")
+                if m.mode == "toggle" else tr("Modifier (hold for layer)", "Модификатор (задръж за слой)"))
     if m.action == "center":
         return tr("Center all Pan/Tilt (smooth)", "Център всички Pan/Tilt (плавно)")
     if m.action == "center_left":

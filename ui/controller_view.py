@@ -383,7 +383,7 @@ class ControllerView(QWidget):
         p.setPen(col if self.layer else QColor(theme.MUTED))
         txt = tr("Layer: {}", "Слой: {}").format(layer_label(self.layer))
         if self.layer_live:
-            txt += tr("   ● held on the controller", "   ● задържан на контролера")
+            txt += tr("   ● active on the controller", "   ● активен на контролера")
         p.drawText(r, Qt.AlignCenter, txt)
 
     def _draw_body(self, p: QPainter):
@@ -627,7 +627,7 @@ class ControllerView(QWidget):
             p.drawText(trect, Qt.AlignRight | Qt.AlignVCenter, tr("not detected", "не е открит"))
         elif held_mod:
             p.setPen(QColor(theme.MOD))
-            p.drawText(trect, Qt.AlignRight | Qt.AlignVCenter, tr("held", "задържан"))
+            p.drawText(trect, Qt.AlignRight | Qt.AlignVCenter, tr("active", "активен"))
         elif duplicate:
             p.setPen(QColor(theme.WARN))
             p.drawText(trect, Qt.AlignRight | Qt.AlignVCenter, tr("duplicate", "дублиран"))

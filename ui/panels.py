@@ -239,6 +239,13 @@ class SettingsPanel(QWidget):
         self.resend = QCheckBox(tr("Send them on startup", "Прати ги при старт"))
         form.addRow("", self.persist)
         form.addRow("", self.resend)
+        self.auto_fill = QCheckBox(tr("Fill new layers automatically", "Попълвай новите слоеве автоматично"))
+        self.auto_fill.setToolTip(tr("When a button becomes a modifier, the new layer's unassigned buttons get free "
+                                     "Note numbers right away. You can change any of them afterwards.",
+                                     "Когато бутон стане модификатор, свободните бутони на новия слой получават "
+                                     "веднага свободни Note номера. После можеш да промениш всеки от тях."))
+        self.auto_fill.toggled.connect(lambda *_: self.changed.emit())
+        form.addRow("", self.auto_fill)
         self.led = QCheckBox(tr("Light bar colour per layer (PlayStation)", "Цвят на лентата по слой (PlayStation)"))
         self.led.setToolTip(tr("The controller's light bar shows which layer is active.",
                                "Светлинната лента на контролера показва кой слой е активен."))

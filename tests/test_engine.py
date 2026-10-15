@@ -342,6 +342,37 @@ class LayerTest(unittest.TestCase):
         self.assertEqual(q.layers["leftshoulder+dpleft"]["x"].number, 72)
         self.assertEqual(q.reachable_layers(), layers)
 
+    def test_toggle_modifier_stays_on_until_pressed_again(self):
+        self.eng.profile.buttons["leftshoulder"].mode = "toggle"
+        self.press("leftshoulder")
+        self.press()  # released: the layer stays on
+        self.assertEqual(self.eng.current_layer, "leftshoulder")
+        self.press("x")
+        self.press()
+        self.assertEqual(self.sent(), [("control_change", 53), ("control_change", 53)])
+        self.press("leftshoulder")  # second press switches it off
+        self.press()
+        self.assertEqual(self.eng.current_layer, "")
+        self.press("x")
+        self.press()
+        self.assertEqual(self.sent(), [("note_on", 38), ("note_off", 38)])
+
+    def test_toggle_and_hold_modifiers_combine(self):
+        self.eng.profile.buttons["leftshoulder"].mode = "toggle"  # LB toggles, D-pad ↑ is held
+        self.press("leftshoulder")
+        self.press()
+        self.press("dpup")
+        self.assertEqual(self.eng.current_layer, "leftshoulder+dpup")
+        self.press()  # D-pad released, LB still on
+        self.assertEqual(self.eng.current_layer, "leftshoulder")
+
+    def test_toggled_layer_is_dropped_on_disconnect(self):
+        self.eng.profile.buttons["leftshoulder"].mode = "toggle"
+        self.press("leftshoulder")
+        self.press()
+        self.eng.feed(("disconnected",), self.t)
+        self.assertEqual(self.eng.current_layer, "")
+
     def test_no_impossible_dpad_layers(self):
         p = self.eng.profile
         for d in ("dpdown", "dpright"):
