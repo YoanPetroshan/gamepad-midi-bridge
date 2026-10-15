@@ -5,10 +5,22 @@ Add an entry here with every release; the GitHub release notes can be copied fro
 """
 from __future__ import annotations
 
-from i18n import LANG
+import i18n
 from updater import parse_version
 
 CHANGES: dict[str, tuple[list[str], list[str]]] = {
+    "1.5.0": (
+        [
+            "**Language button** in the toolbar (🌐 BG / 🌐 EN): one click switches the whole interface "
+            "between English and Bulgarian, instantly, **without restarting**: the controller, MIDI and "
+            "your layers keep running, nothing is interrupted.",
+        ],
+        [
+            "**Бутон за език** в лентата (🌐 BG / 🌐 EN): с един клик целият интерфейс минава от български "
+            "на английски и обратно, веднага и **без рестарт**: контролерът, MIDI и слоевете ти работят "
+            "непрекъснато, нищо не се прекъсва.",
+        ],
+    ),
     "1.4.0": (
         [
             "**Modifiers can be Toggle:** press once to switch the layer on, press again to switch "
@@ -94,7 +106,7 @@ CHANGES: dict[str, tuple[list[str], list[str]]] = {
 
 def items(version: str) -> list[str]:
     en, bg = CHANGES.get(version, ([], []))
-    return bg if LANG == "bg" else en
+    return bg if i18n.LANG == "bg" else en
 
 
 def markdown_since(previous: str | None, current: str) -> str:

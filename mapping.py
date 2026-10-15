@@ -21,44 +21,51 @@ PROFILE_VERSION = 4
 # --- Controller inputs (standard SDL Game Controller API names) ---
 
 # (id, UI label). Labels are the Xbox names; PlayStation names are in FAMILY_LABELS.
-BUTTONS: list[tuple[str, str]] = [
-    ("a", "A"),
-    ("b", "B"),
-    ("x", "X"),
-    ("y", "Y"),
-    ("leftshoulder", "LB"),
-    ("rightshoulder", "RB"),
-    ("back", "View"),
-    ("start", "Menu"),
-    ("leftstick", "L3"),
-    ("rightstick", "R3"),
-    ("dpup", "D-pad ↑"),
-    ("dpdown", "D-pad ↓"),
-    ("dpleft", "D-pad ←"),
-    ("dpright", "D-pad →"),
-    ("guide", "Xbox"),
-    ("misc1", "Share"),
-    # Not on every controller: touchpad click (PlayStation), back paddles (Elite / DualSense Edge)
-    ("touchpad", tr("Touchpad click", "Тъчпад клик")),
-    ("paddle1", tr("Paddle 1", "Заден 1")),
-    ("paddle2", tr("Paddle 2", "Заден 2")),
-    ("paddle3", tr("Paddle 3", "Заден 3")),
-    ("paddle4", tr("Paddle 4", "Заден 4")),
-]
+def _make_buttons() -> list[tuple[str, str]]:
+    return [
+        ("a", "A"),
+        ("b", "B"),
+        ("x", "X"),
+        ("y", "Y"),
+        ("leftshoulder", "LB"),
+        ("rightshoulder", "RB"),
+        ("back", "View"),
+        ("start", "Menu"),
+        ("leftstick", "L3"),
+        ("rightstick", "R3"),
+        ("dpup", "D-pad ↑"),
+        ("dpdown", "D-pad ↓"),
+        ("dpleft", "D-pad ←"),
+        ("dpright", "D-pad →"),
+        ("guide", "Xbox"),
+        ("misc1", "Share"),
+        # Not on every controller: touchpad click (PlayStation), back paddles (Elite / DualSense Edge)
+        ("touchpad", tr("Touchpad click", "Тъчпад клик")),
+        ("paddle1", tr("Paddle 1", "Заден 1")),
+        ("paddle2", tr("Paddle 2", "Заден 2")),
+        ("paddle3", tr("Paddle 3", "Заден 3")),
+        ("paddle4", tr("Paddle 4", "Заден 4")),
+    ]
 
-AXES: list[tuple[str, str]] = [
-    ("leftx", tr("Left stick X", "Ляв стик X")),
-    ("lefty", tr("Left stick Y", "Ляв стик Y")),
-    ("rightx", tr("Right stick X", "Десен стик X")),
-    ("righty", tr("Right stick Y", "Десен стик Y")),
-    ("lefttrigger", "LT"),
-    ("righttrigger", "RT"),
-    # PlayStation only: touchpad surface (finger 1) and gyroscope
-    ("touchx", tr("Touchpad X", "Тъчпад X")),
-    ("touchy", tr("Touchpad Y", "Тъчпад Y")),
-    ("gyroyaw", tr("Gyro turn", "Жиро завъртане")),
-    ("gyropitch", tr("Gyro tilt", "Жиро наклон")),
-]
+
+def _make_axes() -> list[tuple[str, str]]:
+    return [
+        ("leftx", tr("Left stick X", "Ляв стик X")),
+        ("lefty", tr("Left stick Y", "Ляв стик Y")),
+        ("rightx", tr("Right stick X", "Десен стик X")),
+        ("righty", tr("Right stick Y", "Десен стик Y")),
+        ("lefttrigger", "LT"),
+        ("righttrigger", "RT"),
+        # PlayStation only: touchpad surface (finger 1) and gyroscope
+        ("touchx", tr("Touchpad X", "Тъчпад X")),
+        ("touchy", tr("Touchpad Y", "Тъчпад Y")),
+        ("gyroyaw", tr("Gyro turn", "Жиро завъртане")),
+        ("gyropitch", tr("Gyro tilt", "Жиро наклон")),
+    ]
+
+
+BUTTONS: list[tuple[str, str]] = _make_buttons()
+AXES: list[tuple[str, str]] = _make_axes()
 
 BUTTON_IDS = [b for b, _ in BUTTONS]
 AXIS_IDS = [a for a, _ in AXES]
@@ -73,17 +80,33 @@ PADDLE_IDS = ("paddle1", "paddle2", "paddle3", "paddle4")
 NEW_IN_V4 = ("touchpad",) + PADDLE_IDS
 
 FAMILIES = ("xbox", "playstation")
-FAMILY_LABELS = {
-    "xbox": dict(BUTTONS + AXES),
-    "playstation": dict(BUTTONS + AXES) | {
-        "a": "✕ Cross", "b": "○ Circle", "x": "□ Square", "y": "△ Triangle",
-        "leftshoulder": "L1", "rightshoulder": "R1", "lefttrigger": "L2", "righttrigger": "R2",
-        "back": "Create", "start": "Options", "guide": "PS", "misc1": tr("Mic (mute)", "Mic (заглушаване)"),
-    },
-}
+
+
+def _family_labels() -> dict[str, dict[str, str]]:
+    base = dict(BUTTONS + AXES)
+    return {
+        "xbox": base,
+        "playstation": base | {
+            "a": "✕ Cross", "b": "○ Circle", "x": "□ Square", "y": "△ Triangle",
+            "leftshoulder": "L1", "rightshoulder": "R1", "lefttrigger": "L2", "righttrigger": "R2",
+            "back": "Create", "start": "Options", "guide": "PS", "misc1": tr("Mic (mute)", "Mic (заглушаване)"),
+        },
+    }
+
+
+FAMILY_LABELS = _family_labels()
 # The labels in use. Updated in place by set_family(), so every lookup follows the controller.
 INPUT_LABELS = dict(FAMILY_LABELS["xbox"])
 CURRENT_FAMILY = ["xbox"]
+
+
+def refresh_labels() -> None:
+    """Rebuild the input names after the language changed (all of them are updated in place)."""
+    BUTTONS[:] = _make_buttons()
+    AXES[:] = _make_axes()
+    FAMILY_LABELS.clear()
+    FAMILY_LABELS.update(_family_labels())
+    set_family(CURRENT_FAMILY[0])
 
 
 def set_family(family: str) -> None:
@@ -448,7 +471,8 @@ def default_profile(name: str = DEFAULT_PROFILE_NAME) -> Profile:
 
 # --- Label descriptions ---
 
-MODE_NAMES = {"momentary": "Momentary", "toggle": "Toggle", "value": tr("Value", "Стойност")}
+def _mode_name(mode: str) -> str:
+    return {"momentary": "Momentary", "toggle": "Toggle", "value": tr("Value", "Стойност")}[mode]
 
 
 def describe_button(m: ButtonMapping) -> str:
@@ -470,11 +494,11 @@ def describe_button(m: ButtonMapping) -> str:
                 else tr("Gyro (while held)", "Жиро (докато е натиснат)"))
     ch = tr("Ch. {}", "Кан. {}").format(m.channel)
     if m.type == "note":
-        return f"Note {m.number} · {ch} · {MODE_NAMES[m.mode]}"
+        return f"Note {m.number} · {ch} · {_mode_name(m.mode)}"
     if m.type == "cc":
         if m.mode == "value":
             return f"CC {m.number} = {m.value} · {ch}"
-        return f"CC {m.number} · {ch} · {MODE_NAMES[m.mode]}"
+        return f"CC {m.number} · {ch} · {_mode_name(m.mode)}"
     return f"Program {m.number} · {ch}"
 
 

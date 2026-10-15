@@ -27,7 +27,7 @@ from pathlib import Path
 
 from version import APP_VERSION
 
-REPO = "YoanPetroshan/xbox-midi-bridge"
+REPO = "YoanPetroshan/gamepad-midi-bridge"
 API_LATEST = f"https://api.github.com/repos/{REPO}/releases/latest"
 RELEASES_PAGE = f"https://github.com/{REPO}/releases/latest"
 BUNDLE_ID = "com.yoan.xboxmidibridge"

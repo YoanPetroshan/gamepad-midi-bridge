@@ -2,7 +2,7 @@
 
 **English** · [Български](README.bg.md)
 
-## ⬇️ [Download for Mac](https://github.com/YoanPetroshan/xbox-midi-bridge/releases/latest/download/Xbox.MIDI.Bridge.zip)
+## ⬇️ [Download for Mac](https://github.com/YoanPetroshan/gamepad-midi-bridge/releases/latest/download/Xbox.MIDI.Bridge.zip)
 
 Apple Silicon (M1 or newer) · macOS 15 or later · free · [all versions](../../releases)
 
@@ -45,7 +45,7 @@ the stick sets the speed, and a released stick leaves the head where it is.
 
 ## Download
 
-Get [`Xbox MIDI Bridge.zip`](https://github.com/YoanPetroshan/xbox-midi-bridge/releases/latest/download/Xbox.MIDI.Bridge.zip) (always the latest version), or browse the
+Get [`Xbox MIDI Bridge.zip`](https://github.com/YoanPetroshan/gamepad-midi-bridge/releases/latest/download/Xbox.MIDI.Bridge.zip) (always the latest version), or browse the
 [releases page](../../releases).
 Requires an **Apple Silicon Mac (M1 or newer) with macOS 15 Sequoia or later**.
 
@@ -113,7 +113,9 @@ Versions before 1.3.0 can't update themselves: download 1.3.0 once by hand.
 - **Profiles:** new / duplicate / rename / delete / reset to default.
 - **Status bar:** controller, MIDI port, and whether data arrives in the background
   (green once the app receives data while another window is in front).
-- **Language:** Settings → Language (Auto follows the macOS language). Applied on restart.
+- **Language:** the **🌐 BG / 🌐 EN** button in the toolbar switches between English and Bulgarian with one
+  click, instantly and **without restarting**: the controller and MIDI keep running, nothing is
+  interrupted (safe during a show). Settings → Language also offers Auto, which follows the macOS language.
 
 ### Axis parameters
 
@@ -281,8 +283,8 @@ bindings (CC 10 and CC 42) instead of one 14-bit binding, turn 14-bit off for th
 Requires Python 3.11 or 3.12 (Homebrew: `brew install python@3.12`).
 
 ```bash
-git clone https://github.com/YoanPetroshan/xbox-midi-bridge.git
-cd xbox-midi-bridge
+git clone https://github.com/YoanPetroshan/gamepad-midi-bridge.git
+cd gamepad-midi-bridge
 python3.12 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 

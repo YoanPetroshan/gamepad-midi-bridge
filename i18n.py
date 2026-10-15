@@ -46,5 +46,14 @@ def resolve(setting: str) -> str:
 LANG = resolve(os.environ.get("XMB_LANG") or configured_language())
 
 
+def set_language(setting: str) -> str:
+    """Switch the language while the app runs ("auto", "en" or "bg"). Everything that is
+    translated when it is drawn or built follows at once; windows must be rebuilt for their
+    texts to change (see MainWindow.switch_language). Returns the language now in use."""
+    global LANG
+    LANG = resolve(setting)
+    return LANG
+
+
 def tr(en: str, bg: str) -> str:
     return bg if LANG == "bg" else en

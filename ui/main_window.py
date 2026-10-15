@@ -8,14 +8,16 @@ from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QAction, QGuiApplication
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QHBoxLayout, QInputDialog, QLabel,
                                QMainWindow, QMessageBox, QPushButton, QSizePolicy, QSplitter,
-                               QTabWidget, QToolBar, QVBoxLayout, QWidget)
+                               QStatusBar, QTabWidget, QToolBar, QVBoxLayout, QWidget)
 
 from engine import Engine
 from input_reader import ReaderProcess
 import mapping
+import updater
 from mapping import (AXIS_IDS, BUTTON_IDS, DEFAULT_PROFILE_NAME, GYRO_IDS, INPUT_LABELS, PADDLE_IDS,
                      TOUCH_IDS, UNRELIABLE_INPUTS, unreliable_inputs,
                      ProfileStore, default_profile, layer_label, layer_mods)
+import i18n
 from i18n import tr
 from midi_out import MidiOut
 from ui import theme
@@ -66,6 +68,30 @@ class MainWindow(QMainWindow):
         self._live_layer = ""  # the layer of the modifiers held on the controller right now
         self._known_layers: set[str] = set()  # layers that existed at the last refresh
 
+        self._save_timer = QTimer(self)
+        self._save_timer.setSingleShot(True)
+        self._save_timer.setInterval(300)
+        self._save_timer.timeout.connect(lambda: self.store.save_profile(self.profile))
+
+        self.timer = QTimer(self)
+        self.timer.setInterval(int(1000 / UI_HZ))
+        self.timer.timeout.connect(self.tick)
+
+        self.updates = UpdateController(self, self.store.settings, self.store.save_settings, self.close)
+        self._build_ui()
+        self.timer.start()
+        self._whats_new_after_update()
+        if st.get("auto_update_check", True):
+            QTimer.singleShot(3000, self.updates.check)
+
+        if st.get("persist_rate_values") and st.get("resend_on_start"):
+            # Give Lightkey time to see the virtual port.
+            QTimer.singleShot(1500, self.engine.resend_rate_values)
+
+    # ---------------------------------------------------------------- UI
+    def _build_ui(self):
+        """Everything you see. It is rebuilt when the language changes; the engine, the MIDI port
+        and the controller reader are not touched, so nothing is interrupted."""
         self._build_toolbar()
         self._info_applied: dict | None = None
         self.view = ControllerView()
@@ -88,45 +114,50 @@ class MainWindow(QMainWindow):
         lv.setSpacing(6)
         lv.addWidget(self._build_layer_bar())
         lv.addWidget(self.view, 1)
-        split = QSplitter()
-        split.addWidget(left)
-        split.addWidget(self.tabs)
-        split.setStretchFactor(0, 1)
-        split.setStretchFactor(1, 0)
-        split.setSizes([1120, 380])
-        split.setContentsMargins(8, 8, 8, 8)
-        self.setCentralWidget(split)
+        self._split = QSplitter()
+        self._split.addWidget(left)
+        self._split.addWidget(self.tabs)
+        self._split.setStretchFactor(0, 1)
+        self._split.setStretchFactor(1, 0)
+        self._split.setSizes([1120, 380])
+        self._split.setContentsMargins(8, 8, 8, 8)
+        self.setCentralWidget(self._split)  # the previous one, if any, is deleted
 
         self._build_statusbar()
         self._init_settings_panel()
+        self.settings_panel.checkUpdatesRequested.connect(lambda: self.updates.check(manual=True))
+        self.settings_panel.whatsNewRequested.connect(lambda: show_whats_new(self, None))
         self._apply_family()
         self._reload_profiles()
         self._refresh_layers()
 
-        self._save_timer = QTimer(self)
-        self._save_timer.setSingleShot(True)
-        self._save_timer.setInterval(300)
-        self._save_timer.timeout.connect(lambda: self.store.save_profile(self.profile))
+    def _rebuild_ui(self):
+        """Rebuild all windows' texts in the current language, keeping what you were looking at."""
+        sizes, tab = self._split.sizes(), self.tabs.currentIndex()
+        learn, pinned = self.learn_btn.isChecked(), self.pin_cb.isChecked()
+        paused = self.monitor.pause.isChecked()
+        if self._popover is not None:
+            try:
+                self._popover.close()
+            except RuntimeError:
+                pass
+        old_toolbar = self._toolbar
+        self.removeToolBar(old_toolbar)
+        old_toolbar.deleteLater()
+        self._devices_shown = None
+        self._build_ui()
+        self._split.setSizes(sizes)
+        self.tabs.setCurrentIndex(tab)
+        self.learn_btn.blockSignals(True)
+        self.learn_btn.setChecked(learn)
+        self.learn_btn.blockSignals(False)
+        self.view.learn = learn
+        self._set_pin(pinned)  # the new checkbox starts unticked; the layer on screen is unchanged
+        self.monitor.pause.setChecked(paused)
 
-        self.timer = QTimer(self)
-        self.timer.setInterval(int(1000 / UI_HZ))
-        self.timer.timeout.connect(self.tick)
-        self.timer.start()
-
-        self.updates = UpdateController(self, self.store.settings, self.store.save_settings, self.close)
-        self.settings_panel.checkUpdatesRequested.connect(lambda: self.updates.check(manual=True))
-        self.settings_panel.whatsNewRequested.connect(lambda: show_whats_new(self, None))
-        self._whats_new_after_update()
-        if st.get("auto_update_check", True):
-            QTimer.singleShot(3000, self.updates.check)
-
-        if st.get("persist_rate_values") and st.get("resend_on_start"):
-            # Give Lightkey time to see the virtual port.
-            QTimer.singleShot(1500, self.engine.resend_rate_values)
-
-    # ---------------------------------------------------------------- UI
     def _build_toolbar(self):
         tb = QToolBar(tr("Profiles", "Профили"))
+        self._toolbar = tb
         tb.setMovable(False)
         self.addToolBar(tb)
         lbl = QLabel(tr("  Profile ", "  Профил "))
@@ -148,6 +179,12 @@ class MainWindow(QMainWindow):
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         spacer.setStyleSheet("background: transparent;")
         tb.addWidget(spacer)
+        other = "bg" if i18n.LANG == "en" else "en"
+        self.lang_btn = QPushButton("🌐 " + ("BG" if other == "bg" else "EN"))
+        self.lang_btn.setToolTip(tr("Switch the interface to Bulgarian (the app restarts)",
+                                    "Смени интерфейса на английски (приложението се рестартира)"))
+        self.lang_btn.clicked.connect(lambda: self.switch_language(other))
+        tb.addWidget(self.lang_btn)
         self.center_btn = QPushButton(tr("Center Pan/Tilt", "Център Pan/Tilt"))
         self.center_btn.setToolTip(tr("Smoothly glides all rate-mode axes back to 64 (or 8192).\n"
                                       "The time is set in Settings → Glide to center.",
@@ -161,13 +198,15 @@ class MainWindow(QMainWindow):
                                      "Натисни, после натисни бутон на контролера, за да го редактираш"))
         self.learn_btn.toggled.connect(self._learn_toggled)
         tb.addWidget(self.learn_btn)
-        quit_act = QAction(tr("Quit", "Изход"), self)
-        quit_act.setShortcut("Ctrl+Q")
-        quit_act.triggered.connect(self.close)
-        self.addAction(quit_act)
+        if not hasattr(self, "_quit_act"):  # a shortcut only: created once, not with every rebuild
+            self._quit_act = QAction(tr("Quit", "Изход"), self)
+            self._quit_act.setShortcut("Ctrl+Q")
+            self._quit_act.triggered.connect(self.close)
+            self.addAction(self._quit_act)
 
     def _build_statusbar(self):
-        sb = self.statusBar()
+        sb = QStatusBar()
+        self.setStatusBar(sb)  # replaces (and deletes) the previous one
         self.st_ctrl = QLabel()
         self.st_midi = QLabel()
         self.st_bg = QLabel()
@@ -251,12 +290,22 @@ class MainWindow(QMainWindow):
         self.store.save_settings()
         self._apply_family()
 
-    def _choose_language(self, code: str):
+    def switch_language(self, code: str):
+        """Switch the interface language on the fly, without restarting: only the windows are
+        rebuilt. The engine, the MIDI port and the controller keep running, nothing is interrupted."""
         self.store.settings["language"] = code
         self.store.save_settings()
-        QMessageBox.information(self, "Language / Език",
-                                "Restart the app to apply the new language.\n"
-                                "Рестартирай приложението, за да смениш езика.")
+        # Deferred: this is called from a widget (the toolbar button, or the Settings list) that the
+        # rebuild is about to delete.
+        QTimer.singleShot(0, lambda: self._apply_language(code))
+
+    def _apply_language(self, code: str):
+        i18n.set_language(code)
+        mapping.refresh_labels()
+        self._rebuild_ui()
+
+    def _choose_language(self, code: str):
+        self.switch_language(code)
 
     def _settings_changed(self):
         sp = self.settings_panel

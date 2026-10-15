@@ -2,7 +2,7 @@
 
 [English](README.md) · **Български**
 
-## ⬇️ [Изтегли за Mac](https://github.com/YoanPetroshan/xbox-midi-bridge/releases/latest/download/Xbox.MIDI.Bridge.zip)
+## ⬇️ [Изтегли за Mac](https://github.com/YoanPetroshan/gamepad-midi-bridge/releases/latest/download/Xbox.MIDI.Bridge.zip)
 
 Apple Silicon (M1 и нагоре) · macOS 15 или по-нов · безплатно · [всички версии](../../releases)
 
@@ -45,7 +45,7 @@ Apple Silicon (M1 и нагоре) · macOS 15 или по-нов · безпл�
 
 ## Изтегляне
 
-Изтегли [`Xbox MIDI Bridge.zip`](https://github.com/YoanPetroshan/xbox-midi-bridge/releases/latest/download/Xbox.MIDI.Bridge.zip) (винаги последната версия) или разгледай
+Изтегли [`Xbox MIDI Bridge.zip`](https://github.com/YoanPetroshan/gamepad-midi-bridge/releases/latest/download/Xbox.MIDI.Bridge.zip) (винаги последната версия) или разгледай
 [страницата с версиите](../../releases).
 Нужен е **Mac с Apple Silicon (M1 и нагоре) и macOS 15 Sequoia или по-нов**.
 
@@ -115,7 +115,9 @@ Apple Silicon (M1 и нагоре) · macOS 15 или по-нов · безпл�
 - **Профили:** нов / дублирай / преименувай / изтрий / върни по подразбиране.
 - **Лента за състояние:** контролер, MIDI порт и дали има данни във фонов режим
   (зелено, щом приложението получи данни, докато друг прозорец е отпред).
-- **Език:** Настройки → Език (Автоматично следва езика на macOS). Прилага се след рестарт.
+- **Език:** бутонът **🌐 BG / 🌐 EN** в лентата превключва между български и английски с един клик
+  веднага и **без рестарт**: контролерът и MIDI работят непрекъснато, нищо не се прекъсва (безопасно
+  по време на шоу). От Настройки → Език има и „Автоматично“, което следва езика на macOS.
 
 ### Параметри на осите
 
@@ -283,8 +285,8 @@ binding-а (за CC 10 и CC 42) вместо един 14-битов, изклю
 Нужен е Python 3.11 или 3.12 (с Homebrew: `brew install python@3.12`).
 
 ```bash
-git clone https://github.com/YoanPetroshan/xbox-midi-bridge.git
-cd xbox-midi-bridge
+git clone https://github.com/YoanPetroshan/gamepad-midi-bridge.git
+cd gamepad-midi-bridge
 python3.12 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 
